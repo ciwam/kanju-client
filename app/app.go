@@ -50,7 +50,6 @@ var tabs = []Tab{
 	{ID: "search", Text: "搜索", Icon: lucide.Search},
 	{ID: "history", Text: "历史", Icon: lucide.Clock},
 	{ID: "favorites", Text: "收藏", Icon: lucide.Star},
-	{ID: "live", Text: "直播", Icon: lucide.Radio},
 	{ID: "settings", Text: "设置", Icon: lucide.Settings},
 	{ID: "sources", Text: "站源管理", Icon: lucide.Server, Admin: true},
 }
