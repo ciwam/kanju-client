@@ -126,8 +126,14 @@ func (c *Client) doJSON(method, path string, body, out any) error {
 	if !env.IsSuccess {
 		return &Err{Status: resp.StatusCode, Msg: env.ErrorMsg}
 	}
-	if out != nil && len(env.Data) > 0 {
-		if err := json.Unmarshal(env.Data, out); err != nil {
+	if out != nil {
+		// /api/detail 等端点的字段在顶层（channels/cover 与 isSuccess 并列），
+		// data 为空时整体再解一次，两种形态都兼容。
+		if len(env.Data) > 0 {
+			if err := json.Unmarshal(env.Data, out); err != nil {
+				return &Err{Status: resp.StatusCode, Msg: "数据解析失败"}
+			}
+		} else if err := json.Unmarshal(raw, out); err != nil {
 			return &Err{Status: resp.StatusCode, Msg: "数据解析失败"}
 		}
 	}
