@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strconv"
 	"time"
 
 	"kanju/client/theme"
@@ -32,14 +33,14 @@ type playerState struct {
 	ref          *core.Ref
 }
 
-func newPlayerState(cx *core.Scope) *playerState {
+func newPlayerState(cx *core.Scope, volume float64, rate float32) *playerState {
 	return &playerState{
 		paused:     core.NewSignal(cx, false),
 		position:   core.NewSignal(cx, time.Duration(0)),
 		duration:   core.NewSignal(cx, time.Duration(0)),
-		volume:     core.NewSignal(cx, 1.0),
+		volume:     core.NewSignal(cx, volume),
 		muted:      core.NewSignal(cx, false),
-		rate:       core.NewSignal(cx, float32(1.0)),
+		rate:       core.NewSignal(cx, rate),
 		buffering:  core.NewSignal(cx, false),
 		playErr:    core.NewSignal(cx, ""),
 		attempts:   core.NewSignal(cx, 0),
@@ -51,11 +52,36 @@ func newPlayerState(cx *core.Scope) *playerState {
 
 // Player 播放页：自绘控制栏（播放/暂停、进度条、音量）、续播、错误重试、全屏。
 func Player(cx *core.Scope, a *App) core.Node {
-	st := newPlayerState(cx)
+	// 恢复上次的音量/倍速。
+	store := cx.Storage()
+	vol := 1.0
+	if v, ok := store.GetItem("player_volume"); ok {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f <= 1 {
+			vol = f
+		}
+	}
+	rate := float32(1.0)
+	if v, ok := store.GetItem("player_rate"); ok {
+		if f, err := strconv.ParseFloat(v, 32); err == nil && f >= 0.5 && f <= 2 {
+			rate = float32(f)
+		}
+	}
+	st := newPlayerState(cx, vol, rate)
+	// 音量/倍速变化即持久化。
+	cx.Effect(func() {
+		v := st.volume.Get()
+		r := st.rate.Get()
+		core.Untracked(cx, func() bool {
+			store.SetItem("player_volume", strconv.FormatFloat(v, 'f', 2, 64))
+			store.SetItem("player_rate", strconv.FormatFloat(float64(r), 'f', 2, 32))
+			return true
+		})
+	})
 
 	// 播放地址变化：重置状态 + 续播 + 写观看历史。
 	cx.Effect(func() {
 		src := a.PlayURL.Get()
+		episodeURL := a.PlayEpisodeURL.Get()
 		title := a.PlayTitle.Get()
 		source := a.PlaySource.Get()
 		sourceURL := a.PlaySourceURL.Get()
@@ -68,7 +94,7 @@ func Player(cx *core.Scope, a *App) core.Node {
 			st.duration.Set(0)
 			st.attempts.Set(0)
 			st.paused.Set(false)
-			// 续播：查历史里同一片源同一集的位置。
+			// 续播：按原始选集 URL（稳定键，不受代理改写影响）查历史。
 			client := a.API
 			go func() {
 				histories, err := client.Histories()
@@ -76,7 +102,7 @@ func Player(cx *core.Scope, a *App) core.Node {
 					return
 				}
 				for _, h := range histories {
-					if h.PlayURL == src && h.Position > 5 && h.Duration > 0 && h.Position < h.Duration-10 {
+					if episodeURL != "" && h.PlayURL == episodeURL && h.Position > 5 && h.Duration > 0 && h.Position < h.Duration-10 {
 						pos := time.Duration(h.Position) * time.Second
 						cx.Post(func() {
 							st.ref.Seek(pos)
@@ -86,9 +112,9 @@ func Player(cx *core.Scope, a *App) core.Node {
 					}
 				}
 			}()
-			// 写观看历史。
+			// 写观看历史：键用原始选集 URL。
 			go func() {
-				_ = client.SaveHistory(historyEntry(title, src, source, sourceURL))
+				_ = client.SaveHistory(historyEntry(title, episodeURL, source, sourceURL))
 			}()
 			return true
 		})
@@ -98,8 +124,8 @@ func Player(cx *core.Scope, a *App) core.Node {
 	cx.Effect(func() {
 		// 周期 effect：由 position 驱动节流保存。
 		pos := st.position.Get()
-		src := a.PlayURL.Get()
-		if src == "" || st.duration.Get() == 0 {
+		episodeURL := a.PlayEpisodeURL.Get()
+		if episodeURL == "" || st.duration.Get() == 0 {
 			return
 		}
 		core.Untracked(cx, func() bool {
@@ -107,7 +133,7 @@ func Player(cx *core.Scope, a *App) core.Node {
 			// 同一秒的多次 OnProgress 只写一次（OnProgress 约 250ms 一次）。
 			if secs > 0 && secs%10 == 0 && secs != st.lastSavedSec {
 				st.lastSavedSec = secs
-				a.saveProgress(src, secs, int64(st.duration.Get().Seconds()))
+				a.saveProgress(episodeURL, secs, int64(st.duration.Get().Seconds()))
 			}
 			return true
 		})
@@ -493,11 +519,11 @@ func volumeControl(cx *core.Scope, st *playerState) core.Node {
 }
 
 // saveProgress 写播放进度到历史。
-func (a *App) saveProgress(src string, position, duration int64) {
+func (a *App) saveProgress(episodeURL string, position, duration int64) {
 	title := a.PlayTitle.Get()
 	source := a.PlaySource.Get()
 	sourceURL := a.PlaySourceURL.Get()
-	h := historyEntry(title, src, source, sourceURL)
+	h := historyEntry(title, episodeURL, source, sourceURL)
 	h.Position = position
 	h.Duration = duration
 	go func() { _ = a.API.SaveHistory(h) }()

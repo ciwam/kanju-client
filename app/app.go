@@ -2,6 +2,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"sync"
@@ -42,11 +43,13 @@ type App struct {
 	DetailFav        *core.Signal[bool]
 	DetailNowPlaying *core.Signal[string]
 
-	// 播放器入参。
-	PlayTitle     *core.Signal[string]
-	PlayURL       *core.Signal[string]
-	PlaySource    *core.Signal[string]
-	PlaySourceURL *core.Signal[string]
+	// 播放器入参。PlayURL 是交给播放器的（代理改写后）地址；
+	// PlayEpisodeURL 是原始选集 URL，作为历史/续播的稳定匹配键。
+	PlayTitle      *core.Signal[string]
+	PlayURL        *core.Signal[string]
+	PlayEpisodeURL *core.Signal[string]
+	PlaySource     *core.Signal[string]
+	PlaySourceURL  *core.Signal[string]
 }
 
 // Tab 定义侧栏页签。
@@ -130,7 +133,7 @@ func EmbeddedBackend(cx *core.Scope) (string, error) {
 			return
 		}
 		embedAddr = "http://" + addr
-		// stop 闭包持有 srv/db；随进程退出即可，保引用防意外。
+		// stop 闭包持有 srv/db；退出时由 OnQuit 调用优雅关停。
 		embeddedStop = stop
 		log.Printf("kanju embedded backend at %s (db: %s)", embedAddr, dir)
 	})
@@ -178,9 +181,24 @@ func Setup(cx *core.Scope) *App {
 		log.Printf("embedded backend failed to start: %v", err)
 	}
 
+	// 优雅退出：关停内嵌后端（SQLite checkpoint）。
+	cx.OnQuit(func(ctx context.Context) {
+		if embeddedStop != nil {
+			ClientLog("[app] 退出：关停内嵌后端")
+			embeddedStop()
+		}
+	})
+
 	a := SetupForTest(cx, defaultBase)
 	// 全部 API 请求打进统一日志（排查用）。
 	a.API.Logf = ClientLog
+	// 401 全局处理：token 过期时清登录态回登录页（只触发一次）。
+	a.API.OnUnauthorized = func() {
+		cx.Post(func() {
+			ClientLog("[auth] 收到 401，登录态失效，回到登录页")
+			a.Logout(cx)
+		})
+	}
 	startLogPump(cx)
 	a.Embedded.Set(embedded)
 	store := cx.Storage()
@@ -214,6 +232,7 @@ func Setup(cx *core.Scope) *App {
 
 // SaveAuth 持久化登录凭证。
 func (a *App) SaveAuth(cx *core.Scope, token string, u *api.User) {
+	a.API.ResetUnauthorized()
 	a.API.SetToken(token)
 	a.User.Set(u)
 	cx.Storage().SetItem("token", token)
@@ -251,10 +270,12 @@ func (a *App) OpenDetail(title, cover, detailURL string) {
 	a.Tab.Set("detail")
 }
 
-// OpenPlayer 记录播放上下文并跳到播放器。
-func (a *App) OpenPlayer(title, playURL, sourceName, sourceURL string) {
+// OpenPlayer 记录播放上下文并跳到播放器。episodeURL 是原始选集
+// 地址（历史/续播的稳定键），playURL 是代理改写后的播放地址。
+func (a *App) OpenPlayer(title, playURL, episodeURL, sourceName, sourceURL string) {
 	ClientLog("[nav] 播放 %q url=%s 来源=%s", title, playURL, sourceName)
 	a.PlayTitle.Set(title)
+	a.PlayEpisodeURL.Set(episodeURL)
 	a.PlayURL.Set(playURL)
 	a.PlaySource.Set(sourceName)
 	a.PlaySourceURL.Set(sourceURL)

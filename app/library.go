@@ -45,7 +45,7 @@ func History(cx *core.Scope, a *App) core.Node {
 			return historyRow(cx, a, h.Title+" · "+h.EpisodeTitle, h.Cover, h.SourceName,
 				relTime(h.CreatedAt), progressFraction(h.Position, h.Duration), fmtPos(h.Position),
 				func() {
-					a.OpenPlayer(h.Title+" · "+h.EpisodeTitle, h.PlayURL, h.SourceName, h.SourceURL)
+					a.OpenPlayer(h.Title+" · "+h.EpisodeTitle, h.PlayURL, h.PlayURL, h.SourceName, h.SourceURL)
 				})
 		},
 		loading, errMsg, refresh, "还没有观看记录",

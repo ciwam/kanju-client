@@ -3,6 +3,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,17 +31,21 @@ type User struct {
 // Client 是 kanju 后端的 HTTP 客户端。Logf 可注入请求日志钩子
 // （客户端把它接到统一的日志缓冲）。
 type Client struct {
-	mu    sync.RWMutex
-	base  string // 如 http://127.0.0.1:28088
-	token string
-	http  *http.Client
+	mu          sync.RWMutex
+	base        string // 如 http://127.0.0.1:28088
+	token       string
+	unauthFired bool // 401 回调已触发（防抖）
+	http        *http.Client
 	// Logf 可注入请求日志钩子（客户端把它接到统一的日志缓冲）。
 	// 并发安全由调用方保证。
 	Logf func(format string, args ...any)
+	// OnUnauthorized 收到 401 时回调（任意 goroutine，调用方自行切换线程）。
+	// 用于全局把用户送回登录页。可为 nil。
+	OnUnauthorized func()
 }
 
 func New(base string) *Client {
-	c := &Client{http: &http.Client{Timeout: 30 * time.Second}}
+	c := &Client{http: &http.Client{Timeout: 15 * time.Second}}
 	c.SetBase(base)
 	return c
 }
@@ -64,6 +69,25 @@ func (c *Client) logf(format string, args ...any) {
 	if c.Logf != nil {
 		c.Logf("[api] "+format, args...)
 	}
+}
+
+// fireUnauthorized 触发 401 回调（只触发一次，防连续请求连环回调）。
+func (c *Client) fireUnauthorized() {
+	c.mu.Lock()
+	fired := c.unauthFired
+	c.unauthFired = true
+	cb := c.OnUnauthorized
+	c.mu.Unlock()
+	if cb != nil && !fired {
+		cb()
+	}
+}
+
+// ResetUnauthorized 重新武装 401 回调（登录成功后调用）。
+func (c *Client) ResetUnauthorized() {
+	c.mu.Lock()
+	c.unauthFired = false
+	c.mu.Unlock()
 }
 
 // SetToken 保存/清除 Bearer token。
@@ -118,13 +142,22 @@ func (c *Client) newRequest(method, path string, body any) (*http.Request, error
 	return req, nil
 }
 
-// doJSON 执行请求并解析信封；data 为 nil 时不解析。
+// doJSON 执行请求并解析信封（默认 10 秒超时）。
 func (c *Client) doJSON(method, path string, body, out any) error {
+	return c.doJSONTimeout(method, path, body, out, 10*time.Second)
+}
+
+// doJSONTimeout 同 doJSON，但用调用方给的超时。聚合类接口（detail）
+// 要逐站抓取，需要远超普通请求的时限。
+func (c *Client) doJSONTimeout(method, path string, body, out any, timeout time.Duration) error {
 	req, err := c.newRequest(method, path, body)
 	if err != nil {
 		c.logf("%s %s 组装失败: %v", method, path, err)
 		return err
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	req = req.WithContext(ctx)
 	start := time.Now()
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -140,6 +173,7 @@ func (c *Client) doJSON(method, path string, body, out any) error {
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		c.logf("%s %s -> 401 未登录(%dms)", method, path, elapsed)
+		c.fireUnauthorized()
 		return &Err{Status: resp.StatusCode, Msg: "未登录或登录已过期"}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -363,7 +397,8 @@ func (c *Client) Detail(detailURL, sourceName, title string) (DetailResp, error)
 		body["title"] = title
 	}
 	var d DetailResp
-	err := c.doJSON(http.MethodPost, "/api/detail", body, &d)
+	// 聚合要逐站源抓取，实测可达 20-40 秒。
+	err := c.doJSONTimeout(http.MethodPost, "/api/detail", body, &d, 90*time.Second)
 	return d, err
 }
 
@@ -523,4 +558,31 @@ func (c *Client) MediaPathProxy(raw string) string {
 // MediaQueryProxy 直链媒体代理（Range 透传，支持 seek）。
 func (c *Client) MediaQueryProxy(raw string) string {
 	return c.Base() + "/api/proxy/media?url=" + url.QueryEscape(raw)
+}
+
+// PlaybackURL 按 /api/play 返回的 type 把直链改写成代理地址：
+// m3u8 走路径式代理（playlist 内相对分片自动承接），其余走查询式
+// 代理（Range 透传支持 seek）。iframe 类型调用方应已拦截。
+// 内嵌后端（127.0.0.1 loopback）同样走代理：保持行为与外部服务器
+// 一致，且代理层带 Referer/UA 处理，直连易被上游防盗链拒绝。
+func (c *Client) PlaybackURL(raw, typ string) string {
+	if raw == "" {
+		return ""
+	}
+	switch typ {
+	case "m3u8":
+		return c.MediaPathProxy(raw)
+	case "mp4", "flv", "mpd":
+		return c.MediaQueryProxy(raw)
+	default:
+		// 未知类型：按扩展名猜，猜不出直连。
+		l := strings.ToLower(raw)
+		switch {
+		case strings.Contains(l, ".m3u8"):
+			return c.MediaPathProxy(raw)
+		case strings.Contains(l, ".mp4"), strings.Contains(l, ".flv"):
+			return c.MediaQueryProxy(raw)
+		}
+		return raw
+	}
 }

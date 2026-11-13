@@ -115,7 +115,7 @@ func liveRow(cx *core.Scope, a *App, ch api.LiveChannel) core.View {
 			theme.Title(ch.Name, 14, ui.Medium),
 		},
 		OnPress: func(core.PressEvent) {
-			a.OpenPlayer(ch.Name, ch.URL, "直播", "")
+			a.OpenPlayer(ch.Name, ch.URL, ch.URL, "直播", "")
 		},
 	}
 }

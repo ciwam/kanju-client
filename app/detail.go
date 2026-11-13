@@ -139,7 +139,10 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 					return
 				}
 				a.DetailNowPlaying.Set(ep.URL)
-				a.OpenPlayer(a.DetailTitle.Get()+" · "+ep.Title, r.URL, ch.SourceName, a.DetailURL.Get())
+				// 直链按类型改写成代理地址（防盗链/Referer 由代理层处理）。
+				playURL := a.API.PlaybackURL(r.URL, r.Type)
+				ClientLog("[detail] 播放直链 %s (%s) -> %s", r.URL, r.Type, playURL)
+				a.OpenPlayer(a.DetailTitle.Get()+" · "+ep.Title, playURL, ep.URL, ch.SourceName, a.DetailURL.Get())
 			})
 		}()
 	}
