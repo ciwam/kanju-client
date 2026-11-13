@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"kanju/client/api"
 )
 
 func trimSpace(s string) string { return strings.TrimSpace(s) }
@@ -51,4 +53,23 @@ func joinNonEmpty(items []string, sep string) string {
 		out += s
 	}
 	return out
+}
+
+// historyEntry 组装历史条目。title 形如「片名 · 第x集」。
+func historyEntry(title, playURL, sourceName, sourceURL string) api.History {
+	t, ep := splitEpisodeTitle(title)
+	return api.History{
+		Title: t, EpisodeTitle: ep, PlayURL: playURL,
+		SourceName: sourceName, SourceURL: sourceURL,
+	}
+}
+
+// splitEpisodeTitle 按「 · 」拆分片名与集名。
+func splitEpisodeTitle(s string) (title, episode string) {
+	for i := 0; i+3 <= len(s); i++ {
+		if s[i] == '·' && i > 0 && s[i-1] == ' ' && s[i+1] == ' ' {
+			return trimSpace(s[:i-1]), trimSpace(s[i+2:])
+		}
+	}
+	return s, ""
 }
