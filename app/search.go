@@ -102,29 +102,25 @@ func Search(cx *core.Scope, a *App) core.Node {
 	}
 }
 
-// searchGrid 搜索结果网格。
+// searchGrid 搜索结果网格。列表常驻（不因结果为空而销毁重建），
+// SSE 逐站追加结果时保持滚动位置。
 func searchGrid(cx *core.Scope, a *App, results *core.Signal[[]api.SearchItem]) core.Node {
-	return core.Dynamic(func(*core.Scope) core.Node {
-		list := results.Get()
-		if len(list) == 0 {
-			return theme.Empty(cx, "输入关键词开始搜索")
-		}
-		const gap = core.Points(14)
-		return core.List{
-			Count:         func() int { return len(results.Get()) },
-			Key:           func(i int) any { return results.Get()[i].URL },
-			NumColumns:    4,
-			EstimatedSize: core.Points(160/0.7) + 44,
-			Viewport:      core.ListViewportOwn,
-			Gap:           gap + 8,
-			ColumnGap:     gap,
-			Row: func(cx *core.Scope, row core.ListRow) core.Node {
-				it := results.Get()[row.Index()]
-				return searchCell(cx, a, it)
-			},
-			Style: core.Style{FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(4, 0)},
-		}
-	})
+	const gap = core.Points(14)
+	return core.List{
+		Count:         func() int { return len(results.Get()) },
+		Key:           func(i int) any { return results.Get()[i].URL },
+		NumColumns:    4,
+		EstimatedSize: core.Points(160/0.7) + 44,
+		Viewport:      core.ListViewportOwn,
+		Gap:           gap + 8,
+		ColumnGap:     gap,
+		Empty:         theme.Empty(cx, "输入关键词开始搜索"),
+		Row: func(cx *core.Scope, row core.ListRow) core.Node {
+			it := results.Get()[row.Index()]
+			return searchCell(cx, a, it)
+		},
+		Style: core.Style{FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(4, 0)},
+	}
 }
 
 // searchCell 单个结果：点击直接进入详情聚合。

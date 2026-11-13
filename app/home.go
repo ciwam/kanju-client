@@ -258,38 +258,34 @@ func chipButton(cx *core.Scope, label string, active bool, press func()) core.No
 }
 
 // posterGrid 封面网格（虚拟化列表，按宽度自适应列数）。
+// 注意不要在外层 core.Dynamic 里读 items——追加分页会整树重建 List
+// 导致滚动位置归零；List 的 Count/Row 本身就响应数据变化。
 func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], loadMore func()) core.Node {
-	return core.Dynamic(func(*core.Scope) core.Node {
-		list := items.Get()
-		if len(list) == 0 {
-			return core.View{}
-		}
-		// 列宽估算：窗口内容区约 700-1100pt，4 列。行高 = 列宽/0.7（海报）+ 文字两行 + 间距。
-		const columns = 4
-		const gap = core.Points(14)
-		estimated := core.Points(160/0.7) + 44
-		return core.List{
-			Count:         func() int { return len(items.Get()) },
-			Key:           func(i int) any { return items.Get()[i].URL },
-			NumColumns:    columns,
-			EstimatedSize: estimated,
-			Viewport:      core.ListViewportOwn,
-			Gap:           gap + 8,
-			ColumnGap:     gap,
-			OnScroll: func(ev core.ScrollEvent) {
-				ClientLog("[home] scroll offsetY=%.0f contentH=%.0f viewH=%.0f", ev.Offset.Y, ev.ContentSize.Height, ev.Size.Height)
-			},
-			OnLoadMore: loadMore,
-			Row: func(cx *core.Scope, row core.ListRow) core.Node {
-				if row.Index()%8 == 0 {
-					ClientLog("[home] mount row %d (of %d)", row.Index(), len(items.Get()))
-				}
-				it := items.Get()[row.Index()]
-				return posterCell(cx, a, it)
-			},
-			Style: core.Style{FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(4, 0)},
-		}
-	})
+	// 列宽估算：窗口内容区约 700-1100pt，4 列。行高 = 列宽/0.7（海报）+ 文字两行 + 间距。
+	const columns = 4
+	const gap = core.Points(14)
+	estimated := core.Points(160/0.7) + 44
+	return core.List{
+		Count:         func() int { return len(items.Get()) },
+		Key:           func(i int) any { return items.Get()[i].URL },
+		NumColumns:    columns,
+		EstimatedSize: estimated,
+		Viewport:      core.ListViewportOwn,
+		Gap:           gap + 8,
+		ColumnGap:     gap,
+		OnScroll: func(ev core.ScrollEvent) {
+			ClientLog("[home] scroll offsetY=%.0f contentH=%.0f viewH=%.0f", ev.Offset.Y, ev.ContentSize.Height, ev.Size.Height)
+		},
+		OnLoadMore: loadMore,
+		Row: func(cx *core.Scope, row core.ListRow) core.Node {
+			if row.Index()%8 == 0 {
+				ClientLog("[home] mount row %d (of %d)", row.Index(), len(items.Get()))
+			}
+			it := items.Get()[row.Index()]
+			return posterCell(cx, a, it)
+		},
+		Style: core.Style{FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(4, 0)},
+	}
 }
 
 // posterCell 单个海报卡片：点击进豆瓣详情。
