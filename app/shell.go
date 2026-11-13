@@ -20,14 +20,15 @@ func Shell(cx *core.Scope, a *App) core.Node {
 			items = append(items, ui.SidebarItem{ID: t.ID, Text: t.Text, Icon: t.Icon, TestID: "nav-" + t.ID})
 		}
 		sections = append(sections, ui.SidebarSection{Items: items})
-		userRow := ui.Text(userName(a), 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted })
 
-		// 内嵌模式没有"退出登录"的概念，只显示用户名；外部服务器才可退出。
+		// 内嵌模式：不显示用户身份与退出；外部服务器才显示 footer。
 		var footer []core.Node
-		footer = append(footer, userRow)
 		if !a.Embedded.Get() {
-			footer = append(footer, ui.Button{Text: "退出登录", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-				OnPress: func() { a.Logout(cx) }, TestID: "logout"})
+			footer = append(footer,
+				ui.Text(userName(a), 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
+				ui.Button{Text: "退出登录", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					OnPress: func() { a.Logout(cx) }, TestID: "logout"},
+			)
 		}
 
 		return ui.SidebarShell{

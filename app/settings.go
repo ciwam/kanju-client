@@ -45,11 +45,17 @@ func Settings(cx *core.Scope, a *App) core.Node {
 					return ui.Text(m, 12, ui.Regular, func() core.Color { return cx.Palette().Danger })
 				}),
 			),
-			theme.Card(cx,
-				theme.Title("账号", 14, ui.Semibold),
-				ui.Text(userName(a), 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
-				ui.Button{Text: "退出登录", Variant: ui.ButtonSecondary, OnPress: func() { a.Logout(cx) }},
-			),
+			core.Dynamic(func(*core.Scope) core.Node {
+				// 内嵌模式无账号概念，隐藏账号卡片。
+				if a.Embedded.Get() {
+					return core.View{}
+				}
+				return theme.Card(cx,
+					theme.Title("账号", 14, ui.Semibold),
+					ui.Text(userName(a), 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
+					ui.Button{Text: "退出登录", Variant: ui.ButtonSecondary, OnPress: func() { a.Logout(cx) }},
+				)
+			}),
 		},
 	}
 }
