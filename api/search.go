@@ -52,12 +52,15 @@ func (c *Client) SearchStream(keyword, fallback string, stop <-chan struct{},
 	}
 	req, err := c.newRequest(http.MethodGet, "/api/search/stream?"+q.Encode(), nil)
 	if err != nil {
+		c.logf("GET /api/search/stream 组装失败: %v", err)
 		return err
 	}
+	start := time.Now()
 	// SSE 不走全局超时。
 	hc := &http.Client{Timeout: 0}
 	resp, err := hc.Do(req)
 	if err != nil {
+		c.logf("GET /api/search/stream 网络错误(%dms): %v", time.Since(start).Milliseconds(), err)
 		return err
 	}
 	defer resp.Body.Close()
@@ -66,12 +69,15 @@ func (c *Client) SearchStream(keyword, fallback string, stop <-chan struct{},
 	ct := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "text/event-stream") {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		c.logf("GET /api/search/stream -> 非SSE响应 HTTP %d(%dms): %s", resp.StatusCode, time.Since(start).Milliseconds(), firstString(raw, ""))
 		return &Err{Status: resp.StatusCode, Msg: firstString(raw, fmt.Sprintf("搜索失败 (HTTP %d)", resp.StatusCode))}
 	}
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		c.logf("GET /api/search/stream -> HTTP %d(%dms)", resp.StatusCode, time.Since(start).Milliseconds())
 		return &Err{Status: resp.StatusCode, Msg: firstString(raw, "搜索失败")}
 	}
+	c.logf("GET /api/search/stream keyword=%q -> SSE 建立(%dms)", keyword, time.Since(start).Milliseconds())
 
 	stopped := false
 	go func() {
@@ -104,6 +110,7 @@ func (c *Client) SearchStream(keyword, fallback string, stop <-chan struct{},
 				if onMeta != nil {
 					var m SearchMeta
 					if json.Unmarshal([]byte(data), &m) == nil {
+						c.logf("SSE meta: %d 个站源", m.Total)
 						onMeta(m)
 					}
 				}
@@ -111,10 +118,18 @@ func (c *Client) SearchStream(keyword, fallback string, stop <-chan struct{},
 				if onSource != nil {
 					var s SearchSource
 					if json.Unmarshal([]byte(data), &s) == nil {
+						if s.Error != "" {
+							c.logf("SSE source %q 失败: %s", s.SourceName, s.Error)
+						} else if s.Unavailable {
+							c.logf("SSE source %q 不可播", s.SourceName)
+						} else {
+							c.logf("SSE source %q %d 条(%dms)", s.SourceName, len(s.Items), s.Dur)
+						}
 						onSource(s)
 					}
 				}
 			case "done":
+				c.logf("SSE done 总耗时 %dms", time.Since(start).Milliseconds())
 				if onDone != nil {
 					onDone()
 				}

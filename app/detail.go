@@ -31,6 +31,7 @@ func (a *App) refreshFavState(cx *core.Scope, u string) {
 // ToggleFav 收藏/取消收藏当前详情。
 func (a *App) ToggleFav(cx *core.Scope) {
 	u := a.DetailURL.Get()
+	ClientLog("[detail] 切换收藏 url=%s 当前=%v", u, a.DetailFav.Get())
 	title := a.DetailTitle.Get()
 	cover := a.DetailCover.Get()
 	client := a.API
@@ -122,6 +123,7 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 		if a.DetailPlayBusy.Get() != "" {
 			return
 		}
+		ClientLog("[detail] 点选集 %q line=%q", ep.Title, ch.Name)
 		a.DetailPlayBusy.Set("解析播放地址…")
 		client := a.API
 		go func() {

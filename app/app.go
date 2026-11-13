@@ -122,6 +122,8 @@ func EmbeddedBackend(cx *core.Scope) (string, error) {
 			NoAuth: true,
 			// 后端日志收进客户端的统一日志缓冲（设置页可看）。
 			LogOutput: BackendLogWriter(),
+			// 开启后端 debug 日志（请求路由+全链路计时）。
+			Debug: true,
 		}
 		addr, stop, err := backend.Start(opts)
 		if err != nil {
@@ -218,6 +220,7 @@ func (a *App) SaveAuth(cx *core.Scope, token string, u *api.User) {
 
 // Logout 清除登录态。
 func (a *App) Logout(cx *core.Scope) {
+	ClientLog("[nav] 退出登录")
 	a.API.SetToken("")
 	a.User.Set(nil)
 	cx.Storage().RemoveItem("token")
@@ -225,6 +228,7 @@ func (a *App) Logout(cx *core.Scope) {
 
 // SetServer 切换后端地址并重置登录态。切回内嵌地址时免登录。
 func (a *App) SetServer(cx *core.Scope, base string) {
+	ClientLog("[nav] 切换服务器 -> %s", base)
 	a.API.Base = base
 	a.Server.Set(base)
 	cx.Storage().SetItem("server", base)
@@ -239,6 +243,7 @@ func (a *App) SetServer(cx *core.Scope, base string) {
 
 // OpenDetail 记录上下文并跳到详情页签。
 func (a *App) OpenDetail(title, cover, detailURL string) {
+	ClientLog("[nav] 打开详情 %q url=%s", title, detailURL)
 	a.DetailTitle.Set(title)
 	a.DetailCover.Set(cover)
 	a.DetailURL.Set(detailURL)
@@ -247,6 +252,7 @@ func (a *App) OpenDetail(title, cover, detailURL string) {
 
 // OpenPlayer 记录播放上下文并跳到播放器。
 func (a *App) OpenPlayer(title, playURL, sourceName, sourceURL string) {
+	ClientLog("[nav] 播放 %q url=%s 来源=%s", title, playURL, sourceName)
 	a.PlayTitle.Set(title)
 	a.PlayURL.Set(playURL)
 	a.PlaySource.Set(sourceName)

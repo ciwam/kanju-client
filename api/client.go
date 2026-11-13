@@ -27,12 +27,15 @@ type User struct {
 	Role     string `json:"role"` // user | admin
 }
 
+// Client 是 kanju 后端的 HTTP 客户端。Logf 可注入请求日志钩子
+// （客户端把它接到统一的日志缓冲）。
 type Client struct {
 	Base string // 如 http://127.0.0.1:28088
 
-	mu       sync.RWMutex
-	token    string
-	http     *http.Client
+	mu    sync.RWMutex
+	token string
+	http  *http.Client
+	Logf  func(format string, args ...any)
 }
 
 func New(base string) *Client {
@@ -40,6 +43,13 @@ func New(base string) *Client {
 	return &Client{
 		Base: base,
 		http: &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+// logf 打一条请求日志（未设置 Logf 则丢弃）。
+func (c *Client) logf(format string, args ...any) {
+	if c.Logf != nil {
+		c.Logf("[api] "+format, args...)
 	}
 }
 
@@ -102,28 +112,37 @@ func (c *Client) newRequest(method, path string, body any) (*http.Request, error
 func (c *Client) doJSON(method, path string, body, out any) error {
 	req, err := c.newRequest(method, path, body)
 	if err != nil {
+		c.logf("%s %s 组装失败: %v", method, path, err)
 		return err
 	}
+	start := time.Now()
 	resp, err := c.http.Do(req)
 	if err != nil {
+		c.logf("%s %s 网络错误(%dms): %v", method, path, time.Since(start).Milliseconds(), err)
 		return err
 	}
 	defer resp.Body.Close()
+	elapsed := time.Since(start).Milliseconds()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
+		c.logf("%s %s 读响应失败(%dms): %v", method, path, elapsed, err)
 		return err
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
+		c.logf("%s %s -> 401 未登录(%dms)", method, path, elapsed)
 		return &Err{Status: resp.StatusCode, Msg: "未登录或登录已过期"}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		c.logf("%s %s -> HTTP %d(%dms): %s", method, path, resp.StatusCode, elapsed, firstString(raw, ""))
 		return &Err{Status: resp.StatusCode, Msg: firstString(raw, resp.Status)}
 	}
 	var env Envelope[json.RawMessage]
 	if err := json.Unmarshal(raw, &env); err != nil {
+		c.logf("%s %s -> %d 解析失败(%dms)", method, path, resp.StatusCode, elapsed)
 		return &Err{Status: resp.StatusCode, Msg: "响应解析失败"}
 	}
 	if !env.IsSuccess {
+		c.logf("%s %s -> 业务失败(%dms): %s", method, path, elapsed, env.ErrorMsg)
 		return &Err{Status: resp.StatusCode, Msg: env.ErrorMsg}
 	}
 	if out != nil {
@@ -131,12 +150,15 @@ func (c *Client) doJSON(method, path string, body, out any) error {
 		// data 为空时整体再解一次，两种形态都兼容。
 		if len(env.Data) > 0 {
 			if err := json.Unmarshal(env.Data, out); err != nil {
+				c.logf("%s %s -> %d data 解析失败(%dms)", method, path, resp.StatusCode, elapsed)
 				return &Err{Status: resp.StatusCode, Msg: "数据解析失败"}
 			}
 		} else if err := json.Unmarshal(raw, out); err != nil {
+			c.logf("%s %s -> %d 顶层解析失败(%dms)", method, path, resp.StatusCode, elapsed)
 			return &Err{Status: resp.StatusCode, Msg: "数据解析失败"}
 		}
 	}
+	c.logf("%s %s -> 200 OK(%dms)", method, path, elapsed)
 	return nil
 }
 
@@ -165,22 +187,29 @@ func (c *Client) Login(username, password string) (User, error) {
 		"username": username, "password": password,
 	})
 	if err != nil {
+		c.logf("POST /api/auth/login 组装失败: %v", err)
 		return User{}, err
 	}
+	start := time.Now()
 	resp, err := c.http.Do(req)
+	elapsed := time.Since(start).Milliseconds()
 	if err != nil {
+		c.logf("POST /api/auth/login 网络错误(%dms): %v", elapsed, err)
 		return User{}, err
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
+		c.logf("POST /api/auth/login -> HTTP %d(%dms): %s", resp.StatusCode, elapsed, firstString(raw, ""))
 		return User{}, &Err{Status: resp.StatusCode, Msg: firstString(raw, "登录失败")}
 	}
 	var env Envelope[User]
 	if err := json.Unmarshal(raw, &env); err != nil {
+		c.logf("POST /api/auth/login -> %d 解析失败(%dms)", resp.StatusCode, elapsed)
 		return User{}, &Err{Status: resp.StatusCode, Msg: "响应解析失败"}
 	}
 	if !env.IsSuccess {
+		c.logf("POST /api/auth/login -> 业务失败(%dms): %s", elapsed, env.ErrorMsg)
 		return User{}, &Err{Status: resp.StatusCode, Msg: env.ErrorMsg}
 	}
 	token := ""
@@ -191,9 +220,11 @@ func (c *Client) Login(username, password string) (User, error) {
 		}
 	}
 	if token == "" {
+		c.logf("POST /api/auth/login -> 200 但缺少凭证(%dms)", elapsed)
 		return User{}, &Err{Status: resp.StatusCode, Msg: "登录响应缺少凭证"}
 	}
 	c.SetToken(token)
+	c.logf("POST /api/auth/login -> 200 OK(%dms) user=%s role=%s", elapsed, env.Data.Username, env.Data.Role)
 	return env.Data, nil
 }
 
@@ -301,9 +332,9 @@ type Episode struct {
 
 // Channel 是一条线路（站点）。
 type Channel struct {
-	Name        string    `json:"name"`
-	Episodes    []Episode `json:"episodes"`
-	SourceName  string    `json:"_sourceName"`
+	Name       string    `json:"name"`
+	Episodes   []Episode `json:"episodes"`
+	SourceName string    `json:"_sourceName"`
 }
 
 // DetailResp 是聚合详情。

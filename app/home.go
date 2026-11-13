@@ -122,6 +122,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 		if !loading.Get() && len(items.Get()) > 0 && reqKey.GetUntracked() == key {
 			return
 		}
+		ClientLog("[home] 切换分类 %s", key)
 		reqKey.Set(key)
 		tag, sort := currentTag()
 		applyCache()
@@ -266,6 +267,7 @@ func kindSwitcher(cx *core.Scope, kind *core.Signal[string], sub, child *core.Si
 				label = grp.Tag
 			}
 			chipRow.Children = append(chipRow.Children, chipButton(cx, label, si == i, func() {
+				ClientLog("[home] 点分类组 %q", label)
 				sub.Set(i)
 				child.Set(0)
 			}))
