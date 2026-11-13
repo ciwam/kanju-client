@@ -233,7 +233,7 @@ func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem]) co
 			Key:           func(i int) any { return items.Get()[i].URL },
 			NumColumns:    4,
 			EstimatedSize: 240,
-			Viewport:      core.ListViewportParent,
+			Viewport:      core.ListViewportOwn,
 			Row: func(cx *core.Scope, row core.ListRow) core.Node {
 				it := items.Get()[row.Index()]
 				return posterCell(cx, a, it)

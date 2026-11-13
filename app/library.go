@@ -137,7 +137,7 @@ func listPage(cx *core.Scope, a *App,
 					Count:         count,
 					Key:           key,
 					EstimatedSize: 76,
-					Viewport:      core.ListViewportParent,
+					Viewport:      core.ListViewportOwn,
 					Row: func(cx *core.Scope, r core.ListRow) core.Node {
 						return row(cx, r.Index())
 					},

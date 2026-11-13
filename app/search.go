@@ -114,7 +114,7 @@ func searchGrid(cx *core.Scope, a *App, results *core.Signal[[]api.SearchItem]) 
 			Key:           func(i int) any { return results.Get()[i].URL },
 			NumColumns:    4,
 			EstimatedSize: 240,
-			Viewport:      core.ListViewportParent,
+			Viewport:      core.ListViewportOwn,
 			Row: func(cx *core.Scope, row core.ListRow) core.Node {
 				it := results.Get()[row.Index()]
 				return searchCell(cx, a, it)

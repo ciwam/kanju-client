@@ -120,7 +120,7 @@ func Sources(cx *core.Scope, a *App) core.Node {
 					Count:         func() int { return len(list) },
 					Key:           func(i int) any { return list[i].BaseURL },
 					EstimatedSize: 52,
-					Viewport:      core.ListViewportParent,
+					Viewport:      core.ListViewportOwn,
 					Row: func(cx *core.Scope, r core.ListRow) core.Node {
 						s := list[r.Index()]
 						return sourceRow(cx, s, toggle, del)

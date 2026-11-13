@@ -94,7 +94,7 @@ func Live(cx *core.Scope, a *App) core.Node {
 					Count:         func() int { return len(list) },
 					Key:           func(i int) any { return list[i].ID },
 					EstimatedSize: 44,
-					Viewport:      core.ListViewportParent,
+					Viewport:      core.ListViewportOwn,
 					Row: func(cx *core.Scope, r core.ListRow) core.Node {
 						ch := list[r.Index()]
 						return liveRow(cx, a, ch)
