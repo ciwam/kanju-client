@@ -75,7 +75,7 @@ func Login(cx *core.Scope, a *App) core.Node {
 
 	return centered(cx, theme.Col(14,
 		ui.Text("Kanju", 34, ui.Bold, nil),
-		ui.Text("视频聚合播放", 14, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
+		ui.Text("视频聚合播放 · 内置服务已就绪", 14, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
 		theme.Col(6,
 			serverRow(cx, serverDraft, saveServer),
 			theme.Col(10,
@@ -135,12 +135,12 @@ func swapMode(mode string) string {
 	return "register"
 }
 
-// serverRow 是登录页上的服务器地址输入行。
+// serverRow 是登录页上的服务器地址输入行（默认用进程内嵌后端，可改外部服务）。
 func serverRow(cx *core.Scope, draft *core.Signal[string], save func()) core.View {
 	return core.View{
 		StyleFunc: func() core.Style { return core.Style{Direction: core.Row, Gap: 8, Width: core.Pct(100)} },
 		Children: []core.Node{
-			ui.Input{Value: draft.Get, OnChange: draft.Set, Placeholder: "服务器地址 http://…", TestID: "server",
+			ui.Input{Value: draft.Get, OnChange: draft.Set, Placeholder: "服务地址（内置服务可留空默认）", TestID: "server",
 				Style: core.Style{FlexGrow: 1}},
 			ui.Button{Text: "连接", Variant: ui.ButtonSecondary, OnPress: save},
 		},

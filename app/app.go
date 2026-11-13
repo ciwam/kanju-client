@@ -2,7 +2,13 @@
 package app
 
 import (
+	"fmt"
+	"log"
+	"sync"
+
 	"kanju/client/api"
+
+	"kanju/backend"
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -23,9 +29,9 @@ type App struct {
 	DetailURL   *core.Signal[string]
 
 	// 播放器入参。
-	PlayTitle    *core.Signal[string]
-	PlayURL      *core.Signal[string]
-	PlaySource   *core.Signal[string]
+	PlayTitle     *core.Signal[string]
+	PlayURL       *core.Signal[string]
+	PlaySource    *core.Signal[string]
 	PlaySourceURL *core.Signal[string]
 }
 
@@ -46,6 +52,41 @@ var tabs = []Tab{
 	{ID: "settings", Text: "设置", Icon: lucide.Settings},
 	{ID: "sources", Text: "站源管理", Icon: lucide.Server, Admin: true},
 }
+
+// 嵌入后端的生命周期：整个进程一份，退出时随进程结束。
+var (
+	embedOnce sync.Once
+	embedAddr string
+	embedErr  error
+)
+
+// EmbeddedBackend 在进程内启动 kanju 服务（随机端口，数据库在应用数据目录）。
+// 幂等；返回实际监听地址（如 http://127.0.0.1:54321）。
+func EmbeddedBackend(cx *core.Scope) (string, error) {
+	embedOnce.Do(func() {
+		dir := cx.DataDir()
+		if dir == "" {
+			embedErr = fmt.Errorf("应用数据目录不可用")
+			return
+		}
+		opts := backend.ServeOptions{
+			// 空端口 = 自动分配，避免与用户可能在跑的外部 kanju 冲突。
+			DBPath: dir + "/kanju.db",
+		}
+		addr, stop, err := backend.Start(opts)
+		if err != nil {
+			embedErr = err
+			return
+		}
+		embedAddr = "http://" + addr
+		// stop 闭包持有 srv/db；随进程退出即可，保引用防意外。
+		embeddedStop = stop
+		log.Printf("kanju embedded backend at %s (db: %s)", embedAddr, dir)
+	})
+	return embedAddr, embedErr
+}
+
+var embeddedStop func()
 
 // SetupForTest 构造不读持久化的 App（nsgotest 用）。
 func SetupForTest(cx *core.Scope, base string) *App {
@@ -68,7 +109,15 @@ func SetupForTest(cx *core.Scope, base string) *App {
 
 // Setup 在根 scope 上初始化信号与持久化状态。
 func Setup(cx *core.Scope) *App {
-	a := SetupForTest(cx, "http://127.0.0.1:28088")
+	// 优先启动进程内嵌后端：开箱即用，无需外部服务。
+	defaultBase := "http://127.0.0.1:28088"
+	if addr, err := EmbeddedBackend(cx); err == nil {
+		defaultBase = addr
+	} else {
+		log.Printf("embedded backend failed to start: %v", err)
+	}
+
+	a := SetupForTest(cx, defaultBase)
 	store := cx.Storage()
 	if server, ok := store.GetItem("server"); ok && server != "" {
 		a.API.Base = server

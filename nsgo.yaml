@@ -7,4 +7,4 @@ dev:
 
 build:
   output: dist
-  targets: [all]
+  targets: [macos_arm64]
