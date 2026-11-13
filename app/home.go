@@ -15,7 +15,7 @@ import (
 var tvTabs = []tabGroup{
 	{Label: "热门剧集", Children: []tabOpt{
 		{Label: "综合", Tag: "热门"}, {Label: "国产剧", Tag: "国产剧"}, {Label: "欧美剧", Tag: "美剧"},
-		{Label: "日剧", Tag: "日剧"}, {Label: "韩剧", Tag: "韩剧"}, {Label: "动画", Tag: "日本动画"},
+		{Label: "日剧", Tag: "日剧"}, {Label: "韩剧", Tag: "韩剧"}, {Label: "动画", Tag: "动漫"},
 		{Label: "纪录片", Tag: "纪录片"},
 	}},
 	{Label: "热门综艺", Children: []tabOpt{
