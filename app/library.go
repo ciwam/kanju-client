@@ -77,19 +77,19 @@ func Favorites(cx *core.Scope, a *App) core.Node {
 		core.Untracked(cx, func() bool { refresh(); return true })
 	})
 
-		remove := func(f api.Favorite) {
-			client := a.API
-			go func() {
-				err := client.RemoveFavorite(f.DetailURL)
-				cx.Post(func() {
-					if err != nil {
-						errMsg.Set(err.Error())
-					} else {
-						refresh()
-					}
-				})
-			}()
-		}
+	remove := func(f api.Favorite) {
+		client := a.API
+		go func() {
+			err := client.RemoveFavorite(f.DetailURL)
+			cx.Post(func() {
+				if err != nil {
+					errMsg.Set(err.Error())
+				} else {
+					refresh()
+				}
+			})
+		}()
+	}
 
 	return listPage(cx, a,
 		func() int { return len(items.Get()) },

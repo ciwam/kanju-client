@@ -23,3 +23,32 @@ func fmtPos(seconds int64) string {
 	}
 	return fmt.Sprintf("%d:%02d", m, s)
 }
+
+func contains(s, sub string) bool { return strings.Contains(s, sub) }
+
+// segmentAfter 取 s 中 sep 之后到下一个 / 的片段。
+func segmentAfter(s, sep string) string {
+	i := strings.Index(s, sep)
+	if i < 0 {
+		return ""
+	}
+	rest := s[i+len(sep):]
+	if j := strings.Index(rest, "/"); j >= 0 {
+		rest = rest[:j]
+	}
+	return rest
+}
+
+func joinNonEmpty(items []string, sep string) string {
+	out := ""
+	for _, s := range items {
+		if s == "" {
+			continue
+		}
+		if out != "" {
+			out += sep
+		}
+		out += s
+	}
+	return out
+}

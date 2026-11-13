@@ -44,3 +44,25 @@ func TestEmbeddedSkipsLogin(t *testing.T) {
 		t.Fatal("内嵌模式未直接进入主界面")
 	}
 }
+
+// TestDetailRenders 打开详情上下文后，页面应显示标题而不是空白。
+func TestDetailRenders(t *testing.T) {
+	stateCh := make(chan *app.App, 1)
+	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		state := app.SetupForTest(cx, "http://127.0.0.1:1")
+		state.Embedded.Set(true)
+		state.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
+		select {
+		case stateCh <- state:
+		default:
+		}
+		return app.Root(cx, state)
+	}, nsgotest.Size(1000, 700))
+	state := <-stateCh
+	a.Post(func() { state.OpenDetail("测试影片", "", "https://movie.douban.com/subject/123/") })
+	a.Settle()
+	// 标题应出现（豆瓣请求失败也没关系，fallback 标题一定渲染）。
+	if len(a.Query("text:测试影片")) == 0 {
+		t.Fatal("详情页未渲染出影片标题")
+	}
+}

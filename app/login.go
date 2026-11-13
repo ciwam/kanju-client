@@ -99,7 +99,7 @@ func Login(cx *core.Scope, a *App) core.Node {
 			}),
 			core.Dynamic(func(*core.Scope) core.Node {
 				return ui.Button{
-					Text:   toggleText(mode.Get()),
+					Text:    toggleText(mode.Get()),
 					Variant: ui.ButtonGhost, Flex: 1,
 					OnPress: func() {
 						msg.Set("")

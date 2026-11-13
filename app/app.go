@@ -29,6 +29,13 @@ type App struct {
 	DetailTitle *core.Signal[string]
 	DetailCover *core.Signal[string]
 	DetailURL   *core.Signal[string]
+	// 详情页数据：全局单例——页面函数会被 shell 的 Dynamic 重复调用，
+	// 局部信号会分裂成多实例，请求回调写到旧实例导致白屏。
+	DetailSubject  *core.Signal[*api.Subject]
+	DetailData     *core.Signal[*api.DetailResp]
+	DetailLoading  *core.Signal[bool]
+	DetailErr      *core.Signal[string]
+	DetailPlayBusy *core.Signal[string]
 
 	// 播放器入参。
 	PlayTitle     *core.Signal[string]
@@ -97,19 +104,24 @@ var embeddedStop func()
 // SetupForTest 构造不读持久化的 App（nsgotest 用）。
 func SetupForTest(cx *core.Scope, base string) *App {
 	a := &App{
-		API:           api.New(base),
-		Server:        core.NewSignal(cx, base),
-		User:          core.NewSignal(cx, (*api.User)(nil)),
-		Tab:           core.NewSignal(cx, "home"),
-		Error:         core.NewSignal(cx, ""),
-		Embedded:      core.NewSignal(cx, false),
-		DetailTitle:   core.NewSignal(cx, ""),
-		DetailCover:   core.NewSignal(cx, ""),
-		DetailURL:     core.NewSignal(cx, ""),
-		PlayTitle:     core.NewSignal(cx, ""),
-		PlayURL:       core.NewSignal(cx, ""),
-		PlaySource:    core.NewSignal(cx, ""),
-		PlaySourceURL: core.NewSignal(cx, ""),
+		API:            api.New(base),
+		Server:         core.NewSignal(cx, base),
+		User:           core.NewSignal(cx, (*api.User)(nil)),
+		Tab:            core.NewSignal(cx, "home"),
+		Error:          core.NewSignal(cx, ""),
+		Embedded:       core.NewSignal(cx, false),
+		DetailTitle:    core.NewSignal(cx, ""),
+		DetailCover:    core.NewSignal(cx, ""),
+		DetailURL:      core.NewSignal(cx, ""),
+		DetailSubject:  core.NewSignal(cx, (*api.Subject)(nil)),
+		DetailData:     core.NewSignal(cx, (*api.DetailResp)(nil)),
+		DetailLoading:  core.NewSignal(cx, false),
+		DetailErr:      core.NewSignal(cx, ""),
+		DetailPlayBusy: core.NewSignal(cx, ""),
+		PlayTitle:      core.NewSignal(cx, ""),
+		PlayURL:        core.NewSignal(cx, ""),
+		PlaySource:     core.NewSignal(cx, ""),
+		PlaySourceURL:  core.NewSignal(cx, ""),
 	}
 	return a
 }
@@ -185,7 +197,6 @@ func (a *App) SetServer(cx *core.Scope, base string) {
 		a.Embedded.Set(false)
 	}
 }
-
 
 // OpenDetail 记录上下文并跳到详情页签。
 func (a *App) OpenDetail(title, cover, detailURL string) {

@@ -17,7 +17,7 @@ type LogBuffer struct {
 }
 
 var (
-	logLines    []string
+	logLines     []string
 	logListeners []chan struct{}
 )
 

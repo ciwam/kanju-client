@@ -122,4 +122,3 @@ func logView(cx *core.Scope, version *core.Signal[int]) core.Node {
 			BorderStyle: core.BorderSolid, Padding: core.All(8)},
 	}
 }
-
