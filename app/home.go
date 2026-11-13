@@ -6,6 +6,7 @@ import (
 	"kanju/client/api"
 	"kanju/client/theme"
 
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -216,7 +217,8 @@ func Home(cx *core.Scope, a *App) core.Node {
 	}
 }
 
-// kindSwitcher 顶部：电影/剧集分段 + 分类 chips。
+// kindSwitcher 顶部：电影/剧集分段 + 分类 chips（base.Tabs 官方控件，
+// 带键盘导航、hover 反馈与按下缩放）。
 func kindSwitcher(cx *core.Scope, kind *core.Signal[string], sub, child *core.Signal[int], groups func() []tabGroup) core.Node {
 	return core.Dynamic(func(*core.Scope) core.Node {
 		gs := groups()
@@ -226,16 +228,16 @@ func kindSwitcher(cx *core.Scope, kind *core.Signal[string], sub, child *core.Si
 		}
 		g := gs[si]
 
-		// 电影/剧集分段控制。
-		seg := core.View{Style: core.Style{Direction: core.Row, Gap: 0, CornerRadius: 7,
-			BorderColor: cx.Palette().Border, BorderWidth: 1, BorderStyle: core.BorderSolid, Overflow: core.Hidden}}
+		// 电影/剧集分段：胶囊分段控件，选中片有浅色底。
+		seg := base.Tabs{Label: "分类", Style: core.Style{Direction: core.Row, Gap: 4,
+			Padding: core.Symmetric(3, 3), CornerRadius: 9, Background: cx.Palette().SurfaceHover}}
 		seg.Children = append(seg.Children,
 			segItem(cx, "剧集", kind.Get() == "tv", func() { resetKind(kind, sub, child, "tv") }),
 			segItem(cx, "电影", kind.Get() != "tv", func() { resetKind(kind, sub, child, "movie") }),
 		)
 
 		// 组 chips（有子项的组显示组名，没有的组直接显示 tag）。
-		chipRow := core.View{Style: core.Style{Direction: core.Row, Gap: 6, Wrap: core.Wrap}}
+		chipRow := core.View{Style: core.Style{Direction: core.Row, Gap: 8, Wrap: core.Wrap}}
 		for i, grp := range gs {
 			i, grp := i, grp
 			label := grp.Label
@@ -251,7 +253,7 @@ func kindSwitcher(cx *core.Scope, kind *core.Signal[string], sub, child *core.Si
 		// 子项 chips。
 		var childRow core.View
 		if len(g.Children) > 0 {
-			childRow = core.View{Style: core.Style{Direction: core.Row, Gap: 6, Wrap: core.Wrap}}
+			childRow = core.View{Style: core.Style{Direction: core.Row, Gap: 8, Wrap: core.Wrap}}
 			for i, opt := range g.Children {
 				i, opt := i, opt
 				childRow.Children = append(childRow.Children, chipButton(cx, opt.Label, child.Get() == i, func() {
@@ -278,34 +280,63 @@ func resetKind(kind *core.Signal[string], sub, child *core.Signal[int], k string
 	child.Set(0)
 }
 
+// segItem 分段控件里的一片（剧集/电影）。
 func segItem(cx *core.Scope, label string, active bool, press func()) core.Node {
-	p := cx.Palette()
-	st := core.Style{Padding: core.Symmetric(4, 14), FontSize: 13}
-	if active {
-		st.Background = p.Accent
-		st.Color = p.AccentText
-	} else {
-		st.Background = p.Background
-		st.Color = p.Text
+	return base.Tab{Selected: func() bool { return active }, Label: label,
+		OnPress: func(core.PressEvent) { press() },
+		Style: core.Style{Padding: core.Symmetric(2, 2), CornerRadius: 7,
+			Active: &core.Style{Transform: core.Transform{Scale: 0.97}}},
+		Children: []core.Node{core.View{
+			StyleFunc: func() core.Style {
+				p := cx.Palette()
+				st := core.Style{
+					Height: core.Pt(26), Padding: core.Symmetric(0, 16),
+					CornerRadius: 7, JustifyContent: core.JustifyCenter,
+					Transition: core.Transition{Duration: 150 * time.Millisecond, Easing: core.EaseOut},
+				}
+				if active {
+					st.Background = p.Background
+					st.Color = p.Text
+				} else {
+					st.Color = p.TextMuted
+					st.Hover = &core.Style{Color: p.Text}
+				}
+				return st
+			},
+			Children: []core.Node{core.Text{Content: label, StyleFunc: func() core.Style {
+				p := cx.Palette()
+				st := core.Style{FontSize: 13, FontWeight: ui.Medium}
+				if active {
+					st.Color = p.Text
+				} else {
+					st.Color = p.TextMuted
+				}
+				return st
+			}}},
+		}},
 	}
-	return core.View{Style: st, Children: []core.Node{core.Text{Content: label}}, OnPress: func(core.PressEvent) { press() }}
 }
 
+// chipButton 分类胶囊：选中有 accent 底，未选有边框 + hover 反馈 + 按压缩放。
 func chipButton(cx *core.Scope, label string, active bool, press func()) core.Node {
 	return core.Dynamic(func(*core.Scope) core.Node {
 		p := cx.Palette()
 		st := core.Style{
-			Padding: core.Symmetric(3, 10), CornerRadius: 999, FontSize: 12,
+			Padding: core.Symmetric(4, 12), CornerRadius: 999, FontSize: 12,
+			Transition: core.Transition{Duration: 120 * time.Millisecond, Easing: core.EaseOut},
+			Active:     &core.Style{Transform: core.Transform{Scale: 0.96}},
 		}
 		if active {
 			st.Background = p.Accent
 			st.Color = p.AccentText
+			st.FontWeight = core.FontWeightMedium
 		} else {
 			st.Background = p.Background
-			st.Color = p.Text
+			st.Color = p.TextMuted
 			st.BorderColor = p.Border
 			st.BorderWidth = 1
 			st.BorderStyle = core.BorderSolid
+			st.Hover = &core.Style{Color: p.Text, Background: p.SurfaceHover, CornerRadius: 999}
 		}
 		return core.View{Style: st, Children: []core.Node{core.Text{Content: label}}, OnPress: func(core.PressEvent) { press() }}
 	})
