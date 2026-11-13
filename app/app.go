@@ -77,6 +77,8 @@ func EmbeddedBackend(cx *core.Scope) (string, error) {
 			// 内嵌模式免登录：只绑 127.0.0.1，无对外暴露；鉴权全开时
 			// 用户每次打开 app 都要先输账号密码，没有意义。
 			NoAuth: true,
+			// 后端日志收进客户端的统一日志缓冲（设置页可看）。
+			LogOutput: BackendLogWriter(),
 		}
 		addr, stop, err := backend.Start(opts)
 		if err != nil {

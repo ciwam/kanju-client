@@ -1,13 +1,15 @@
 package app
 
 import (
+	"strings"
+
 	"kanju/client/theme"
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Settings 设置页：服务器地址、账号信息。
+// Settings 设置页：服务器地址、账号信息、运行日志。
 func Settings(cx *core.Scope, a *App) core.Node {
 	draft := core.NewSignal(cx, a.Server.Get())
 	msg := core.NewSignal(cx, "")
@@ -23,7 +25,7 @@ func Settings(cx *core.Scope, a *App) core.Node {
 
 	return core.View{
 		StyleFunc: func() core.Style {
-			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 14})
+			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 14, Overflow: core.Hidden})
 		},
 		Children: []core.Node{
 			theme.Title("设置", 20, ui.Semibold),
@@ -56,6 +58,68 @@ func Settings(cx *core.Scope, a *App) core.Node {
 					ui.Button{Text: "退出登录", Variant: ui.ButtonSecondary, OnPress: func() { a.Logout(cx) }},
 				)
 			}),
+			LogCard(cx),
 		},
 	}
 }
+
+// LogCard 运行日志卡片：客户端事件 + 内嵌后端日志合并展示。
+func LogCard(cx *core.Scope) core.View {
+	// 日志版本号：每次有新行 +1，驱动重渲染；页面重新挂载时重建。
+	version := core.NewSignal(cx, 0)
+	tick := make(chan struct{}, 1)
+	stop := WatchLogs(tick)
+	cx.Cleanup(func() { stop() })
+	go func() {
+		for range tick {
+			cx.Post(func() { version.Update(func(n int) int { return n + 1 }) })
+		}
+	}()
+
+	clear := func() { ClearLogs(); version.Update(func(n int) int { return n + 1 }) }
+	copyAll := func() { cx.SetClipboard(strings.Join(Logs(), "\n")) }
+
+	return theme.Card(cx,
+		core.View{
+			StyleFunc: func() core.Style { return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8} },
+			Children: []core.Node{
+				core.View{
+					StyleFunc: func() core.Style { return core.Style{FlexGrow: 1, FlexShrink: 1} },
+					Children:  []core.Node{theme.Title("运行日志", 14, ui.Semibold)},
+				},
+				ui.Button{Text: "复制", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: copyAll},
+				ui.Button{Text: "清空", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: clear},
+			},
+		},
+		logView(cx, version),
+	)
+}
+
+// logView 等宽字体的日志文本区。
+func logView(cx *core.Scope, version *core.Signal[int]) core.Node {
+	return core.List{
+		Count: func() int {
+			version.Get() // 订阅日志变化，驱动重渲染
+			return len(Logs())
+		},
+		EstimatedSize: 18,
+		Viewport:      core.ListViewportOwn,
+		Row: func(cx *core.Scope, row core.ListRow) core.Node {
+			lines := Logs()
+			if row.Index() >= len(lines) {
+				return core.View{}
+			}
+			return core.Text{
+				Content: lines[row.Index()],
+				Style: core.Style{
+					FontSize: 11, FontFamily: core.FontMonospace,
+					Color: cx.Palette().TextMuted,
+				},
+			}
+		},
+		Style: core.Style{FlexGrow: 1, FlexShrink: 1, Height: core.Pt(220), CornerRadius: 6,
+			Background: cx.Palette().Background, BorderWidth: 1, BorderColor: cx.Palette().Border,
+			BorderStyle: core.BorderSolid, Padding: core.All(8)},
+	}
+}
+
