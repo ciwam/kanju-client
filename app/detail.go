@@ -8,9 +8,10 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// LoadDetail 拉豆瓣详情 + 站源聚合，结果写进 App 的全局详情信号。
-// 状态放 App 而非页面局部：页面函数会被 shell 的 Dynamic 重复调用，
-// 局部信号分裂成多实例时，请求回调写旧实例导致详情页白屏。
+// LoadDetail 并行拉豆瓣详情与站源聚合，各自先到先显示：
+// 影片名称/海报/简介通常几秒内出来，线路选集（各站源逐个抓取，约
+// 20 秒）后到再追加。状态放 App 而非页面局部：页面函数会被 shell 的
+// Dynamic 重复调用，局部信号分裂成多实例时，请求回调写旧实例导致白屏。
 func (a *App) LoadDetail(cx *core.Scope, u, title, cover string) {
 	a.DetailLoading.Set(true)
 	a.DetailErr.Set("")
@@ -21,50 +22,37 @@ func (a *App) LoadDetail(cx *core.Scope, u, title, cover string) {
 	if contains(u, "movie.douban.com/subject/") {
 		doubanID = segmentAfter(u, "/subject/")
 	}
+
+	// 豆瓣头部信息：独立加载、独立显示。
 	go func() {
-		var (
-			s   *api.Subject
-			d   *api.DetailResp
-			sEr error
-			dEr error
-		)
-		if doubanID != "" {
-			if v, err := client.DoubanSubject(doubanID, cover); err == nil {
-				s = &v
-			} else {
-				sEr = err
-				ClientLog("[detail] douban subject error: %v", err)
-			}
+		if doubanID == "" {
+			return
 		}
-		dv, err := client.Detail(u, "", title)
-		if err == nil {
-			d = &dv
-			ClientLog("[detail] aggregated %d channels", len(dv.Channels))
-		} else {
-			dEr = err
-			ClientLog("[detail] aggregate error: %v", err)
-		}
+		v, err := client.DoubanSubject(doubanID, cover)
 		cx.Post(func() {
-			a.DetailLoading.Set(false)
-			a.DetailSubject.Set(s)
-			a.DetailData.Set(d)
-			if dEr != nil && (s == nil || len(d.Channels) == 0) {
-				msg := dEr.Error()
-				if sEr != nil {
-					msg += "；" + sEr.Error()
-				}
-				a.DetailErr.Set(msg)
+			if err != nil {
+				ClientLog("[detail] douban subject error: %v", err)
+				return
 			}
-			ClientLog("[detail] state applied subject=%v detail=%v(ch=%d)", s != nil, d != nil, len(channelsOf(d)))
+			a.DetailSubject.Set(&v)
+			ClientLog("[detail] subject ready %q", v.Title)
 		})
 	}()
-}
 
-func channelsOf(d *api.DetailResp) []api.Channel {
-	if d == nil {
-		return nil
-	}
-	return d.Channels
+	// 站源聚合：完成前 DetailLoading 让页面显示"正在聚合站源…"。
+	go func() {
+		dv, err := client.Detail(u, "", title)
+		cx.Post(func() {
+			a.DetailLoading.Set(false)
+			if err != nil {
+				a.DetailErr.Set(err.Error())
+				ClientLog("[detail] aggregate error: %v", err)
+				return
+			}
+			a.DetailData.Set(&dv)
+			ClientLog("[detail] aggregated %d channels", len(dv.Channels))
+		})
+	}()
 }
 
 // SubjectDetail 详情页：豆瓣信息 + 各站源线路/选集聚合。纯渲染——
@@ -115,9 +103,23 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 			}
 			s := a.DetailSubject.Get()
 			d := a.DetailData.Get()
+			// 豆瓣失败时用聚合响应的 cover/intro 兜底，保证标题下有介绍。
 			var head []core.Node
 			if s != nil {
+				if s.Intro == "" && d != nil && d.Intro != "" {
+					s.Intro = d.Intro
+				}
+				if s.Cover == "" && d != nil && d.Cover != "" {
+					s.Cover = d.Cover
+				}
 				head = append(head, subjectHead(cx, a, s)...)
+			} else if d != nil && (d.Intro != "" || d.Cover != "") {
+				// 豆瓣没数据但聚合带了 cover/intro：渲染纯文字头部 + 简介。
+				cover := d.Cover
+				if cover == "" {
+					cover = a.DetailCover.Get()
+				}
+				head = append(head, fallbackHead(cx, a, a.DetailTitle.Get(), cover, d.Intro))
 			} else {
 				head = append(head, theme.Title(a.DetailTitle.Get(), 20, ui.Semibold))
 			}
@@ -149,6 +151,25 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 				core.View{Style: core.Style{Gap: 14, Padding: core.All(0)}, Children: children},
 			}}
 		})},
+	}
+}
+
+// fallbackHead 豆瓣详情不可用时的头部：标题 + 海报 + 聚合响应带来的简介。
+func fallbackHead(cx *core.Scope, a *App, title, cover, intro string) core.View {
+	var info []core.Node
+	info = append(info, theme.Title(title, 20, ui.Semibold))
+	if intro != "" {
+		info = append(info, core.Text{Content: intro, Style: theme.TypeBody.Merge(core.Style{Color: cx.Palette().Text, LineHeight: 22})})
+	}
+	children := []core.Node{
+		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, Gap: 8}, Children: info},
+	}
+	if cover != "" {
+		children = append([]core.Node{theme.Poster(a.API.ImageURL(cover), title, 130, 182)}, children...)
+	}
+	return core.View{
+		StyleFunc: func() core.Style { return core.Style{Direction: core.Row, Gap: 16, AlignItems: core.AlignStart} },
+		Children:  children,
 	}
 }
 
