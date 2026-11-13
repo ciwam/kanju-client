@@ -45,7 +45,10 @@ type Client struct {
 }
 
 func New(base string) *Client {
-	c := &Client{http: &http.Client{Timeout: 15 * time.Second}}
+	// 不设 Client 级 Timeout：它会覆盖整个请求生命周期且无法被
+	// per-request context 放宽（detail 聚合 90s 曾被 15s 全局上限掐断）。
+	// 超时全部由 doJSONTimeout 的 context 控制，SSE 用独立 client。
+	c := &Client{http: &http.Client{}}
 	c.SetBase(base)
 	return c
 }
@@ -234,6 +237,9 @@ func (c *Client) Login(username, password string) (User, error) {
 		c.logf("POST /api/auth/login 组装失败: %v", err)
 		return User{}, err
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
 	start := time.Now()
 	resp, err := c.http.Do(req)
 	elapsed := time.Since(start).Milliseconds()
