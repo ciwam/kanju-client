@@ -1,0 +1,479 @@
+// Package api 对接 kanju 后端（HTTP + SSE），所有请求走 net/http。
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+)
+
+// Envelope 是后端统一响应信封。
+type Envelope[T any] struct {
+	IsSuccess bool   `json:"isSuccess"`
+	ErrorMsg  string `json:"errorMsg"`
+	Data      T      `json:"data"`
+}
+
+// User 是登录后的用户信息。
+type User struct {
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
+	Role     string `json:"role"` // user | admin
+}
+
+type Client struct {
+	Base string // 如 http://127.0.0.1:28088
+
+	mu       sync.RWMutex
+	token    string
+	http     *http.Client
+}
+
+func New(base string) *Client {
+	base = strings.TrimRight(base, "/")
+	return &Client{
+		Base: base,
+		http: &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+// SetToken 保存/清除 Bearer token。
+func (c *Client) SetToken(t string) {
+	c.mu.Lock()
+	c.token = t
+	c.mu.Unlock()
+}
+
+// Token 返回当前 token。
+func (c *Client) Token() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.token
+}
+
+// IsAuthed 返回是否已有 token。
+func (c *Client) IsAuthed() bool { return c.Token() != "" }
+
+// Err 是业务错误：HTTP 非 2xx 或 isSuccess=false。
+type Err struct {
+	Status int
+	Msg    string
+}
+
+func (e *Err) Error() string {
+	if e.Msg != "" {
+		return e.Msg
+	}
+	return fmt.Sprintf("请求失败 (HTTP %d)", e.Status)
+}
+
+// Unauthorized 是否 401（token 失效，应回到登录页）。
+func (e *Err) Unauthorized() bool { return e.Status == http.StatusUnauthorized }
+
+func (c *Client) newRequest(method, path string, body any) (*http.Request, error) {
+	var rd io.Reader
+	if body != nil {
+		buf, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		rd = bytes.NewReader(buf)
+	}
+	req, err := http.NewRequest(method, c.Base+path, rd)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if t := c.Token(); t != "" {
+		req.Header.Set("Authorization", "Bearer "+t)
+	}
+	return req, nil
+}
+
+// doJSON 执行请求并解析信封；data 为 nil 时不解析。
+func (c *Client) doJSON(method, path string, body, out any) error {
+	req, err := c.newRequest(method, path, body)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return &Err{Status: resp.StatusCode, Msg: "未登录或登录已过期"}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return &Err{Status: resp.StatusCode, Msg: firstString(raw, resp.Status)}
+	}
+	var env Envelope[json.RawMessage]
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return &Err{Status: resp.StatusCode, Msg: "响应解析失败"}
+	}
+	if !env.IsSuccess {
+		return &Err{Status: resp.StatusCode, Msg: env.ErrorMsg}
+	}
+	if out != nil && len(env.Data) > 0 {
+		if err := json.Unmarshal(env.Data, out); err != nil {
+			return &Err{Status: resp.StatusCode, Msg: "数据解析失败"}
+		}
+	}
+	return nil
+}
+
+// firstString 尽力从错误 body 里抠出 errorMsg。
+func firstString(raw []byte, fallback string) string {
+	var e struct {
+		ErrorMsg string `json:"errorMsg"`
+		Error    string `json:"error"`
+	}
+	if json.Unmarshal(raw, &e) == nil {
+		if e.ErrorMsg != "" {
+			return e.ErrorMsg
+		}
+		if e.Error != "" {
+			return e.Error
+		}
+	}
+	return fallback
+}
+
+// ---- 认证 ----
+
+// Login 登录并从 Set-Cookie 里取 token。
+func (c *Client) Login(username, password string) (User, error) {
+	req, err := c.newRequest(http.MethodPost, "/api/auth/login", map[string]string{
+		"username": username, "password": password,
+	})
+	if err != nil {
+		return User{}, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return User{}, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		return User{}, &Err{Status: resp.StatusCode, Msg: firstString(raw, "登录失败")}
+	}
+	var env Envelope[User]
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return User{}, &Err{Status: resp.StatusCode, Msg: "响应解析失败"}
+	}
+	if !env.IsSuccess {
+		return User{}, &Err{Status: resp.StatusCode, Msg: env.ErrorMsg}
+	}
+	token := ""
+	for _, ck := range resp.Cookies() {
+		if ck.Name == "kanju_token" {
+			token = ck.Value
+			break
+		}
+	}
+	if token == "" {
+		return User{}, &Err{Status: resp.StatusCode, Msg: "登录响应缺少凭证"}
+	}
+	c.SetToken(token)
+	return env.Data, nil
+}
+
+func (c *Client) Register(username, password string) (User, error) {
+	var u User
+	err := c.doJSON(http.MethodPost, "/api/auth/register", map[string]string{
+		"username": username, "password": password,
+	}, &u)
+	return u, err
+}
+
+func (c *Client) Logout() error {
+	return c.doJSON(http.MethodPost, "/api/auth/logout", nil, nil)
+}
+
+func (c *Client) Me() (User, error) {
+	var u User
+	err := c.doJSON(http.MethodGet, "/api/auth/me", nil, &u)
+	return u, err
+}
+
+// ---- 首页（豆瓣） ----
+
+// DoubanItem 是榜单/搜索条目。ID 仅搜索降级时有。
+type DoubanItem struct {
+	ID           string `json:"id,omitempty"`
+	Title        string `json:"title"`
+	Cover        string `json:"cover"`
+	URL          string `json:"url"`
+	Rate         string `json:"rate"`
+	Year         string `json:"year,omitempty"`
+	EpisodesInfo string `json:"episodesInfo,omitempty"`
+	SourceName   string `json:"sourceName,omitempty"`
+}
+
+func (c *Client) DoubanList(kind, tag, sort string, limit, start int) ([]DoubanItem, error) {
+	q := url.Values{}
+	q.Set("type", kind)
+	q.Set("tag", tag)
+	if sort != "" {
+		q.Set("sort", sort)
+	}
+	q.Set("limit", fmt.Sprint(limit))
+	q.Set("start", fmt.Sprint(start))
+	var items []DoubanItem
+	err := c.doJSON(http.MethodGet, "/api/douban?"+q.Encode(), nil, &items)
+	return items, err
+}
+
+func (c *Client) DoubanSearch(keyword string) ([]DoubanItem, error) {
+	q := url.Values{}
+	q.Set("q", keyword)
+	var items []DoubanItem
+	err := c.doJSON(http.MethodGet, "/api/douban?"+q.Encode(), nil, &items)
+	return items, err
+}
+
+// Subject 是豆瓣影片详情。
+type Subject struct {
+	ID        string   `json:"id"`
+	URL       string   `json:"url"`
+	Title     string   `json:"title"`
+	Year      string   `json:"year"`
+	Cover     string   `json:"cover"`
+	Rating    string   `json:"rating"`
+	Directors []string `json:"directors"`
+	Actors    []string `json:"actors"`
+	Genres    []string `json:"genres"`
+	Region    string   `json:"region"`
+	Episodes  string   `json:"episodes"`
+	Duration  string   `json:"duration"`
+	Subtype   string   `json:"subtype"`
+	Intro     string   `json:"intro"`
+}
+
+func (c *Client) DoubanSubject(id, cover string) (Subject, error) {
+	q := url.Values{}
+	q.Set("id", id)
+	if cover != "" {
+		q.Set("cover", cover)
+	}
+	var s Subject
+	err := c.doJSON(http.MethodGet, "/api/douban/subject?"+q.Encode(), nil, &s)
+	return s, err
+}
+
+// Poster 兜底海报。
+func (c *Client) Poster(title string) (string, error) {
+	q := url.Values{}
+	q.Set("title", title)
+	var r struct {
+		Poster string `json:"poster"`
+	}
+	err := c.doJSON(http.MethodGet, "/api/poster?"+q.Encode(), nil, &r)
+	return r.Poster, err
+}
+
+// ---- 详情与播放 ----
+
+// Episode 是一条选集。
+type Episode struct {
+	Title string `json:"title"`
+	URL   string `json:"url"`
+}
+
+// Channel 是一条线路（站点）。
+type Channel struct {
+	Name        string    `json:"name"`
+	Episodes    []Episode `json:"episodes"`
+	SourceName  string    `json:"_sourceName"`
+}
+
+// DetailResp 是聚合详情。
+type DetailResp struct {
+	Cover    string    `json:"cover,omitempty"`
+	Intro    string    `json:"intro,omitempty"`
+	Channels []Channel `json:"channels"`
+}
+
+func (c *Client) Detail(detailURL, sourceName, title string) (DetailResp, error) {
+	body := map[string]string{"url": detailURL}
+	if sourceName != "" {
+		body["sourceName"] = sourceName
+	}
+	if title != "" {
+		body["title"] = title
+	}
+	var d DetailResp
+	err := c.doJSON(http.MethodPost, "/api/detail", body, &d)
+	return d, err
+}
+
+// PlayResult 是播放解析结果。Type: m3u8|mp4|flv|mpd|iframe。
+type PlayResult struct {
+	URL  string `json:"url"`
+	Type string `json:"type"`
+}
+
+func (c *Client) Play(epURL string) (PlayResult, error) {
+	var r PlayResult
+	err := c.doJSON(http.MethodPost, "/api/play", map[string]string{"url": epURL}, &r)
+	return r, err
+}
+
+// ---- 历史 / 收藏 / 直播 ----
+
+type History struct {
+	ID           int64  `json:"id"`
+	Title        string `json:"title"`
+	Cover        string `json:"cover"`
+	SourceName   string `json:"sourceName"`
+	SourceURL    string `json:"sourceUrl"`
+	EpisodeTitle string `json:"episodeTitle"`
+	PlayURL      string `json:"playUrl"`
+	Position     int64  `json:"position"`
+	Duration     int64  `json:"duration"`
+	CreatedAt    string `json:"createdAt"`
+}
+
+func (c *Client) Histories() ([]History, error) {
+	var h []History
+	err := c.doJSON(http.MethodGet, "/api/history", nil, &h)
+	return h, err
+}
+
+func (c *Client) SaveHistory(h History) error {
+	return c.doJSON(http.MethodPost, "/api/history", map[string]any{
+		"title": h.Title, "cover": h.Cover, "sourceName": h.SourceName,
+		"sourceUrl": h.SourceURL, "episodeTitle": h.EpisodeTitle,
+		"playUrl": h.PlayURL, "position": h.Position, "duration": h.Duration,
+	}, nil)
+}
+
+type Favorite struct {
+	ID         int64  `json:"id"`
+	Title      string `json:"title"`
+	Cover      string `json:"cover"`
+	SourceName string `json:"sourceName"`
+	DetailURL  string `json:"detailUrl"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+func (c *Client) Favorites() ([]Favorite, error) {
+	var f []Favorite
+	err := c.doJSON(http.MethodGet, "/api/favorites", nil, &f)
+	return f, err
+}
+
+func (c *Client) AddFavorite(f Favorite) error {
+	return c.doJSON(http.MethodPost, "/api/favorites", map[string]string{
+		"title": f.Title, "cover": f.Cover, "sourceName": f.SourceName, "detailUrl": f.DetailURL,
+	}, nil)
+}
+
+func (c *Client) RemoveFavorite(detailURL string) error {
+	return c.doJSON(http.MethodPost, "/api/favorites/delete", map[string]string{"detailUrl": detailURL}, nil)
+}
+
+type LiveChannel struct {
+	ID        int64  `json:"id"`
+	GroupName string `json:"groupName"`
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	SortOrder int    `json:"sortOrder"`
+}
+
+func (c *Client) LiveChannels(group string) ([]LiveChannel, error) {
+	path := "/api/live"
+	if group != "" {
+		q := url.Values{}
+		q.Set("group", group)
+		path += "?" + q.Encode()
+	}
+	var l []LiveChannel
+	err := c.doJSON(http.MethodGet, path, nil, &l)
+	return l, err
+}
+
+// ---- 设置 ----
+
+func (c *Client) RegistrationOpen() (bool, error) {
+	var r struct {
+		Open bool `json:"open"`
+	}
+	err := c.doJSON(http.MethodGet, "/api/settings/registration", nil, &r)
+	return r.Open, err
+}
+
+// ---- 站源管理（admin） ----
+
+// SiteSource 是一个站源（字段有省略，客户端只用到管理常用项）。
+type SiteSource struct {
+	ID       string `json:"id,omitempty"`
+	Name     string `json:"name"`
+	BaseURL  string `json:"baseUrl"`
+	Enabled  bool   `json:"enabled"`
+	Type     string `json:"sourceType,omitempty"`
+	Disabled int    `json:"isDisable,omitempty"`
+}
+
+func (c *Client) Sources() ([]SiteSource, error) {
+	var s []SiteSource
+	err := c.doJSON(http.MethodGet, "/api/sources", nil, &s)
+	return s, err
+}
+
+func (c *Client) AddSource(s SiteSource) error {
+	return c.doJSON(http.MethodPost, "/api/sources", s, nil)
+}
+
+func (c *Client) DeleteSource(baseURL string) error {
+	return c.doJSON(http.MethodPost, "/api/sources/delete", map[string]string{"baseUrl": baseURL}, nil)
+}
+
+func (c *Client) ToggleSource(baseURL string) error {
+	return c.doJSON(http.MethodPost, "/api/sources/toggle", map[string]string{"baseUrl": baseURL}, nil)
+}
+
+// ---- URL 工具 ----
+
+// ImageURL 把任意封面 URL 包装成图片代理地址。
+func (c *Client) ImageURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if strings.Contains(raw, "/api/proxy/image") {
+		return raw
+	}
+	return c.Base + "/api/proxy/image?url=" + url.QueryEscape(raw)
+}
+
+// MediaPathProxy 把 m3u8 等直链改写成路径式媒体代理，
+// playlist 内的相对分片引用可自然解析回代理路径。
+func (c *Client) MediaPathProxy(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	p := "/api/proxy/m/" + u.Scheme + "/" + u.Host + u.Path
+	if u.RawQuery != "" {
+		p += "?" + u.RawQuery
+	}
+	return c.Base + p
+}
+
+// MediaQueryProxy 直链媒体代理（Range 透传，支持 seek）。
+func (c *Client) MediaQueryProxy(raw string) string {
+	return c.Base + "/api/proxy/media?url=" + url.QueryEscape(raw)
+}

@@ -1,0 +1,10 @@
+name: Kanju
+id: me.kanju.client
+version: 0.1.0
+
+dev:
+  target: native
+
+build:
+  output: dist
+  targets: [all]
