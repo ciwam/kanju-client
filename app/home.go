@@ -50,6 +50,10 @@ func Home(cx *core.Scope, a *App) core.Node {
 	loading := core.NewSignal(cx, false)
 	errMsg := core.NewSignal(cx, "")
 
+	// 分页：每页条数与加载中标记。
+	const pageLimit = 30
+	pageLoading := core.NewSignal(cx, false)
+
 	groups := func() []tabGroup {
 		if kind.Get() == "tv" {
 			return tvTabs
@@ -84,7 +88,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 		client := a.API
 		k := kind.Get()
 		go func() {
-			list, err := client.DoubanList(k, tag, sort, 30, 0)
+			list, err := client.DoubanList(k, tag, sort, pageLimit, 0)
 			cx.Post(func() {
 				loading.Set(false)
 				if err != nil {
@@ -93,6 +97,38 @@ func Home(cx *core.Scope, a *App) core.Node {
 				} else {
 					items.Set(list)
 				}
+			})
+		}()
+	}
+
+	// 分页加载：滚近列表尾部时由 List 的 OnLoadMore 触发。
+	loadMore := func() {
+		if loading.Get() || pageLoading.Get() {
+			return
+		}
+		cur := items.Get()
+		if len(cur) == 0 || len(cur) < pageLimit { // 不足一页说明到底了
+			return
+		}
+		tag, sort := currentTag()
+		k := kind.Get()
+		start := len(cur)
+		client := a.API
+		pageLoading.Set(true)
+		ClientLog("[home] load page start=%d tag=%s", start, tag)
+		go func() {
+			list, err := client.DoubanList(k, tag, sort, pageLimit, start)
+			cx.Post(func() {
+				pageLoading.Set(false)
+				if err != nil {
+					ClientLog("[home] load page error: %v", err)
+					return
+				}
+				ClientLog("[home] load page got %d items", len(list))
+				if len(list) == 0 {
+					return
+				}
+				items.Set(append(cur, list...))
 			})
 		}()
 	}
@@ -121,7 +157,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 					return core.View{}
 				}
 			}),
-			posterGrid(cx, a, items),
+			posterGrid(cx, a, items, loadMore),
 		},
 	}
 }
@@ -222,7 +258,7 @@ func chipButton(cx *core.Scope, label string, active bool, press func()) core.No
 }
 
 // posterGrid 封面网格（虚拟化列表，按宽度自适应列数）。
-func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem]) core.Node {
+func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], loadMore func()) core.Node {
 	return core.Dynamic(func(*core.Scope) core.Node {
 		list := items.Get()
 		if len(list) == 0 {
@@ -240,7 +276,14 @@ func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem]) co
 			Viewport:      core.ListViewportOwn,
 			Gap:           gap + 8,
 			ColumnGap:     gap,
+			OnScroll: func(ev core.ScrollEvent) {
+				ClientLog("[home] scroll offsetY=%.0f contentH=%.0f viewH=%.0f", ev.Offset.Y, ev.ContentSize.Height, ev.Size.Height)
+			},
+			OnLoadMore: loadMore,
 			Row: func(cx *core.Scope, row core.ListRow) core.Node {
+				if row.Index()%8 == 0 {
+					ClientLog("[home] mount row %d (of %d)", row.Index(), len(items.Get()))
+				}
 				it := items.Get()[row.Index()]
 				return posterCell(cx, a, it)
 			},
