@@ -15,30 +15,34 @@ import (
 // playerState 是播放页的局部状态（每次进入播放页签新建；
 // 数据源 PlayURL 等在 App 上，页面销毁重建不影响数据）。
 type playerState struct {
-	paused    *core.Signal[bool]
-	position  *core.Signal[time.Duration]
-	duration  *core.Signal[time.Duration]
-	volume    *core.Signal[float64]
-	muted     *core.Signal[bool]
-	buffering *core.Signal[bool]
-	playErr   *core.Signal[string]
-	attempts  *core.Signal[int] // 同一集的重试次数，用于自动重试
-	resumed   *core.Signal[bool]
-	ref       *core.Ref
+	paused     *core.Signal[bool]
+	position   *core.Signal[time.Duration]
+	duration   *core.Signal[time.Duration]
+	volume     *core.Signal[float64]
+	muted      *core.Signal[bool]
+	rate       *core.Signal[float32]
+	buffering  *core.Signal[bool]
+	playErr    *core.Signal[string]
+	attempts   *core.Signal[int] // 同一集的重试次数，用于自动重试
+	resumed    *core.Signal[bool]
+	barVisible *core.Signal[bool] // 控制栏自动隐藏
+	ref        *core.Ref
 }
 
 func newPlayerState(cx *core.Scope) *playerState {
 	return &playerState{
-		paused:    core.NewSignal(cx, false),
-		position:  core.NewSignal(cx, time.Duration(0)),
-		duration:  core.NewSignal(cx, time.Duration(0)),
-		volume:    core.NewSignal(cx, 1.0),
-		muted:     core.NewSignal(cx, false),
-		buffering: core.NewSignal(cx, false),
-		playErr:   core.NewSignal(cx, ""),
-		attempts:  core.NewSignal(cx, 0),
-		resumed:   core.NewSignal(cx, false),
-		ref:       &core.Ref{},
+		paused:     core.NewSignal(cx, false),
+		position:   core.NewSignal(cx, time.Duration(0)),
+		duration:   core.NewSignal(cx, time.Duration(0)),
+		volume:     core.NewSignal(cx, 1.0),
+		muted:      core.NewSignal(cx, false),
+		rate:       core.NewSignal(cx, float32(1.0)),
+		buffering:  core.NewSignal(cx, false),
+		playErr:    core.NewSignal(cx, ""),
+		attempts:   core.NewSignal(cx, 0),
+		resumed:    core.NewSignal(cx, false),
+		barVisible: core.NewSignal(cx, true),
+		ref:        &core.Ref{},
 	}
 }
 
@@ -121,6 +125,51 @@ func Player(cx *core.Scope, a *App) core.Node {
 		}
 	}
 
+	// seek 相对跳转（快进快退），卡到 duration 边界。
+	seek := func(delta time.Duration) {
+		dur := st.duration.Get()
+		if dur <= 0 {
+			return
+		}
+		next := st.position.Get() + delta
+		if next < 0 {
+			next = 0
+		}
+		if next > dur {
+			next = dur
+		}
+		st.ref.Seek(next)
+		st.position.Set(next)
+		st.barVisible.Set(true)
+	}
+
+	// 键盘快捷键：空格暂停、←/→ ±10s、↑/↓ 音量、F 全屏。
+	cx.OnKey("space", func() { st.paused.Update(func(v bool) bool { return !v }); st.barVisible.Set(true) })
+	cx.OnKey("left", func() { seek(-10 * time.Second) })
+	cx.OnKey("right", func() { seek(10 * time.Second) })
+	cx.OnKey("up", func() {
+		st.volume.Update(func(v float64) float64 {
+			v += 0.1
+			if v > 1 {
+				v = 1
+			}
+			st.muted.Set(false)
+			return v
+		})
+		st.barVisible.Set(true)
+	})
+	cx.OnKey("down", func() {
+		st.volume.Update(func(v float64) float64 {
+			v -= 0.1
+			if v < 0 {
+				v = 0
+			}
+			return v
+		})
+		st.barVisible.Set(true)
+	})
+	cx.OnKey("f", func() { desktop.ToggleFullScreen(cx) })
+
 	return core.View{
 		StyleFunc: func() core.Style {
 			return theme.Fill().Merge(core.Style{Gap: 0, Overflow: core.Hidden})
@@ -138,6 +187,7 @@ func Player(cx *core.Scope, a *App) core.Node {
 				PausedFunc: st.paused.Get,
 				MutedFunc:  st.muted.Get,
 				VolumeFunc: func() float32 { return float32(st.volume.Get()) },
+				RateFunc:   st.rate.Get,
 				ResizeMode: core.Contain,
 				Controls:   false, // 自绘控制栏
 				Style:      core.Style{FlexGrow: 1, FlexShrink: 1, Width: core.Pct(100), Background: core.RGB(0x000000)},
@@ -147,7 +197,14 @@ func Player(cx *core.Scope, a *App) core.Node {
 				OnError:    func(err error) { st.playErr.Set(err.Error()); autoRetry(err.Error()) },
 				TestID:     "video",
 				StyleFunc:  nil,
-				OnPress:    func(core.PressEvent) { st.paused.Update(func(p bool) bool { return !p }) },
+				OnPress: func(ev core.PressEvent) {
+					st.barVisible.Set(true)
+					if ev.Clicks >= 2 {
+						desktop.ToggleFullScreen(cx)
+						return
+					}
+					st.paused.Update(func(p bool) bool { return !p })
+				},
 			}
 
 			// 播放器区域 = 视频 + 覆盖其上的底部控制栏 + 状态角标。
@@ -208,10 +265,40 @@ func overlayBox(cx *core.Scope, color core.Color, text string) core.View {
 	}
 }
 
-// controlBar 底部悬浮控制栏：播放/暂停、时间、进度条、音量、全屏。
+// controlBar 底部悬浮控制栏：播放/暂停、±10s、进度条、时间、倍速、音量、全屏。
+// 无操作 3 秒自动隐藏，鼠标在播放器区域内移动/按压即恢复。
 func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
+	hideTimer := core.NewSignal(cx, 0) // 变化驱动隐藏定时
+	// 控制栏可见或播放状态变化时重置 3 秒隐藏定时。
+	resetHide := func() {
+		st.barVisible.Set(true)
+		n := hideTimer.Get()
+		hideTimer.Set(n + 1)
+		go func() {
+			n := hideTimer.GetUntracked()
+			time.Sleep(3 * time.Second)
+			cx.Post(func() {
+				if hideTimer.Get() == n && !st.paused.Get() {
+					st.barVisible.Set(false)
+				}
+			})
+		}()
+	}
+	_ = resetHide
+
 	return core.Dynamic(func(*core.Scope) core.Node {
+		visible := st.barVisible.Get()
 		p := cx.Palette()
+		if !visible {
+			// 隐藏时保留一个透明热区，鼠标进入恢复。
+			return core.View{
+				Style: core.Style{
+					Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0),
+					Height: core.Pt(36),
+				},
+				OnMouseEnter: func(core.MouseEvent) { st.barVisible.Set(true) },
+			}
+		}
 		bar := core.View{
 			Style: core.Style{
 				Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0),
@@ -226,6 +313,25 @@ func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
 					Children: []core.Node{ui.Icon(playIcon(st), 18, func() core.Color { return p.Text })},
 					OnPress:  func(core.PressEvent) { st.paused.Update(func(v bool) bool { return !v }) },
 				},
+				// 快退 10s。
+				core.View{
+					Style:    core.Style{Width: core.Pt(26), Height: core.Pt(28), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+					Children: []core.Node{ui.Text("-10s", 10, ui.Medium, func() core.Color { return p.Text })},
+					OnPress:  func(core.PressEvent) { st.ref.Seek(maxDur(st.position.Get()-10*time.Second, 0)) },
+				},
+				// 快进 10s。
+				core.View{
+					Style:    core.Style{Width: core.Pt(30), Height: core.Pt(28), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+					Children: []core.Node{ui.Text("+10s", 10, ui.Medium, func() core.Color { return p.Text })},
+					OnPress: func(core.PressEvent) {
+						d := st.duration.Get()
+						next := st.position.Get() + 10*time.Second
+						if d > 0 && next > d {
+							next = d
+						}
+						st.ref.Seek(next)
+					},
+				},
 				// 进度条。
 				progressSlider(cx, st),
 				// 时间。
@@ -234,6 +340,36 @@ func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
 						return fmtDuration(st.position.Get()) + " / " + fmtDuration(st.duration.Get())
 					},
 					Style: core.Style{FontSize: 11, Color: p.TextMuted},
+				},
+				// 倍速。
+				core.View{
+					Style: core.Style{Padding: core.Symmetric(2, 8), CornerRadius: 4},
+					Children: []core.Node{core.Text{
+						ContentFunc: func() string {
+							r := st.rate.Get()
+							if r == 1 {
+								return "倍速"
+							}
+							return fmtRate(r)
+						},
+						Style: core.Style{FontSize: 12, Color: p.Text},
+					}},
+					OnPress: func(core.PressEvent) {
+						st.rate.Update(func(r float32) float32 {
+							switch r {
+							case 1:
+								return 1.25
+							case 1.25:
+								return 1.5
+							case 1.5:
+								return 2
+							case 2:
+								return 0.5
+							default:
+								return 1
+							}
+						})
+					},
 				},
 				// 音量。
 				volumeControl(cx, st),
@@ -244,9 +380,30 @@ func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
 					OnPress:  func(core.PressEvent) { desktop.ToggleFullScreen(cx) },
 				},
 			},
+			OnMouseEnter: func(core.MouseEvent) { st.barVisible.Set(true) },
 		}
 		return bar
 	})
+}
+
+func maxDur(a, b time.Duration) time.Duration {
+	if a < b {
+		return b
+	}
+	return a
+}
+
+func fmtRate(r float32) string {
+	switch r {
+	case 2:
+		return "2.0x"
+	case 0.5:
+		return "0.5x"
+	default:
+		// 1.25/1.5 等
+		s := itoa(int64(r * 100))
+		return s[:len(s)-2] + "." + s[len(s)-2:] + "x"
+	}
 }
 
 func playIcon(st *playerState) func() *core.SVG {

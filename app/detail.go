@@ -8,6 +8,53 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
+// refreshFavState 查当前详情是否已收藏。
+func (a *App) refreshFavState(cx *core.Scope, u string) {
+	client := a.API
+	go func() {
+		favs, err := client.Favorites()
+		cx.Post(func() {
+			if err != nil {
+				return
+			}
+			for _, f := range favs {
+				if f.DetailURL == u {
+					a.DetailFav.Set(true)
+					return
+				}
+			}
+			a.DetailFav.Set(false)
+		})
+	}()
+}
+
+// ToggleFav 收藏/取消收藏当前详情。
+func (a *App) ToggleFav(cx *core.Scope) {
+	u := a.DetailURL.Get()
+	title := a.DetailTitle.Get()
+	cover := a.DetailCover.Get()
+	client := a.API
+	if a.DetailFav.Get() {
+		go func() {
+			if err := client.RemoveFavorite(u); err != nil {
+				ClientLog("[detail] unfav error: %v", err)
+			}
+			cx.Post(func() { a.DetailFav.Set(false) })
+		}()
+		return
+	}
+	go func() {
+		err := client.AddFavorite(api.Favorite{Title: title, Cover: cover, DetailURL: u})
+		cx.Post(func() {
+			if err != nil {
+				ClientLog("[detail] fav error: %v", err)
+				return
+			}
+			a.DetailFav.Set(true)
+		})
+	}()
+}
+
 // LoadDetail 并行拉豆瓣详情与站源聚合，各自先到先显示：
 // 影片名称/海报/简介通常几秒内出来，线路选集（各站源逐个抓取，约
 // 20 秒）后到再追加。状态放 App 而非页面局部：页面函数会被 shell 的
@@ -58,7 +105,7 @@ func (a *App) LoadDetail(cx *core.Scope, u, title, cover string) {
 // SubjectDetail 详情页：豆瓣信息 + 各站源线路/选集聚合。纯渲染——
 // 数据在 App 的全局信号里，进入页签时由 Root 的导航 effect 触发加载。
 func SubjectDetail(cx *core.Scope, a *App) core.Node {
-	// 每次切到详情页签时重新加载。
+	// 每次切到详情页签时重新加载 + 查收藏状态。
 	cx.Effect(func() {
 		u := a.DetailURL.Get()
 		if a.Tab.Get() != "detail" || u == "" {
@@ -66,6 +113,7 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 		}
 		core.Untracked(cx, func() bool {
 			a.LoadDetail(cx, u, a.DetailTitle.Get(), a.DetailCover.Get())
+			a.refreshFavState(cx, u)
 			return true
 		})
 	})
@@ -88,6 +136,7 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 					a.DetailErr.Set("该集只能网页播放，请换线路或选集")
 					return
 				}
+				a.DetailNowPlaying.Set(ep.URL)
 				a.OpenPlayer(a.DetailTitle.Get()+" · "+ep.Title, r.URL, ch.SourceName, a.DetailURL.Get())
 			})
 		}()
@@ -141,10 +190,20 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 				}),
 			)
 
-			if d != nil && len(d.Channels) > 0 {
-				for _, ch := range d.Channels {
-					ch := ch
-					children = append(children, channelSection(cx, a, ch, play))
+			if d != nil {
+				if len(d.Channels) > 0 {
+					for _, ch := range mergeChannels(d.Channels) {
+						ch := ch
+						children = append(children, channelSection(cx, a, ch, play))
+					}
+				} else if !a.DetailLoading.Get() {
+					// 聚合完成但没有可播资源：给搜索兜底入口。
+					children = append(children, theme.Card(cx,
+						theme.Title("未找到播放资源", 14, ui.Semibold),
+						ui.Text("各站源都没有收录这部影片，试试直接搜索片名", 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
+						ui.Button{Text: "去搜索", Variant: ui.ButtonSecondary,
+							OnPress: func() { a.Tab.Set("search") }},
+					))
 				}
 			}
 			return core.Scroll{Style: core.Style{FlexGrow: 1, FlexShrink: 1}, Children: []core.Node{
@@ -152,6 +211,21 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 			}}
 		})},
 	}
+}
+
+// favButton 收藏/已收藏切换按钮（状态在 App.DetailFav）。
+func favButton(cx *core.Scope, a *App) core.Node {
+	return core.Dynamic(func(*core.Scope) core.Node {
+		if a.Embedded.Get() {
+			return core.View{} // 内嵌模式历史数据按 URL 键，收藏语义留给外部服务器
+		}
+		if a.DetailFav.Get() {
+			return ui.Button{Text: "已收藏", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+				OnPress: func() { a.ToggleFav(cx) }}
+		}
+		return ui.Button{Text: "收藏", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+			OnPress: func() { a.ToggleFav(cx) }}
+	})
 }
 
 // fallbackHead 豆瓣详情不可用时的头部：标题 + 海报 + 聚合响应带来的简介。
@@ -179,7 +253,13 @@ func subjectHead(cx *core.Scope, a *App, s *api.Subject) []core.Node {
 	if coverURL == "" {
 		coverURL = a.DetailCover.Get()
 	}
-	info := []core.Node{theme.Title(s.Title, 20, ui.Semibold)}
+	info := []core.Node{core.View{
+		StyleFunc: func() core.Style { return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10} },
+		Children: []core.Node{
+			theme.Title(s.Title, 20, ui.Semibold),
+			favButton(cx, a),
+		},
+	}}
 	meta := s.Year
 	if s.Rating != "" {
 		if meta != "" {
@@ -221,17 +301,25 @@ func channelSection(cx *core.Scope, a *App, ch api.Channel, play func(api.Episod
 	if ch.SourceName != "" && ch.SourceName != name {
 		name += "（" + ch.SourceName + "）"
 	}
+	nowPlaying := a.DetailNowPlaying.Get()
 	epRow := core.View{Style: core.Style{Direction: core.Row, Gap: 6, Wrap: core.Wrap}}
 	for _, ep := range ch.Episodes {
 		ep := ep
+		current := ep.URL != "" && ep.URL == nowPlaying
 		epRow.Children = append(epRow.Children, core.View{
 			StyleFunc: func() core.Style {
 				p := cx.Palette()
-				return core.Style{
+				st := core.Style{
 					Padding: core.Symmetric(3, 10), CornerRadius: 6, FontSize: 12,
 					Background: p.Background, Color: p.Text,
 					BorderColor: p.Border, BorderWidth: 1, BorderStyle: core.BorderSolid,
 				}
+				if current {
+					st.Background = p.Accent
+					st.Color = p.AccentText
+					st.BorderColor = p.Accent
+				}
+				return st
 			},
 			Children: []core.Node{core.Text{Content: ep.Title}},
 			OnPress:  func(core.PressEvent) { play(ep, ch) },
@@ -241,4 +329,39 @@ func channelSection(cx *core.Scope, a *App, ch api.Channel, play func(api.Episod
 		theme.Title(name, 14, ui.Semibold),
 		epRow,
 	)
+}
+
+// mergeChannels 同名线路合并为一组（各站源对同一线路常有重复命名），
+// 组内选集按 URL 去重。
+func mergeChannels(channels []api.Channel) []api.Channel {
+	out := []api.Channel{}
+	index := map[string]int{}
+	seen := map[string]bool{}
+	for _, ch := range channels {
+		name := ch.Name
+		if name == "" {
+			name = ch.SourceName
+		}
+		if name == "" {
+			name = "线路"
+		}
+		i, ok := index[name]
+		if !ok {
+			i = len(out)
+			index[name] = i
+			out = append(out, api.Channel{Name: name, SourceName: ch.SourceName})
+		}
+		for _, ep := range ch.Episodes {
+			key := ep.URL
+			if key == "" {
+				key = name + "|" + ep.Title
+			}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out[i].Episodes = append(out[i].Episodes, ep)
+		}
+	}
+	return out
 }

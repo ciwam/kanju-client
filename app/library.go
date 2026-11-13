@@ -1,9 +1,12 @@
 package app
 
 import (
+	"time"
+
 	"kanju/client/api"
 	"kanju/client/theme"
 
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -39,13 +42,11 @@ func History(cx *core.Scope, a *App) core.Node {
 		func(i int) any { return items.Get()[i].ID },
 		func(cx *core.Scope, i int) core.Node {
 			h := items.Get()[i]
-			progress := ""
-			if h.Duration > 0 && h.Position > 0 {
-				progress = fmtPos(h.Position) + " / " + fmtPos(h.Duration)
-			}
-			return historyRow(cx, a, h.Title+" · "+h.EpisodeTitle, h.Cover, h.SourceName, progress, func() {
-				a.OpenPlayer(h.Title+" · "+h.EpisodeTitle, h.PlayURL, h.SourceName, h.SourceURL)
-			})
+			return historyRow(cx, a, h.Title+" · "+h.EpisodeTitle, h.Cover, h.SourceName,
+				relTime(h.CreatedAt), progressFraction(h.Position, h.Duration), fmtPos(h.Position),
+				func() {
+					a.OpenPlayer(h.Title+" · "+h.EpisodeTitle, h.PlayURL, h.SourceName, h.SourceURL)
+				})
 		},
 		loading, errMsg, refresh, "还没有观看记录",
 	)
@@ -91,14 +92,30 @@ func Favorites(cx *core.Scope, a *App) core.Node {
 		}()
 	}
 
+	confirmRemove := func(f api.Favorite) {
+		base.ShowAlertDialog(cx, base.AlertDialog{
+			Title:       "取消收藏",
+			Description: "确定取消收藏「" + f.Title + "」吗？",
+			Actions: []core.AlertAction{
+				{Label: "取消", Role: core.AlertCancel},
+				{Label: "确定", Role: core.AlertDestructive},
+			},
+		}, func(label string) {
+			if label == "确定" {
+				remove(f)
+			}
+		})
+	}
+
 	return listPage(cx, a,
 		func() int { return len(items.Get()) },
 		func(i int) any { return items.Get()[i].ID },
 		func(cx *core.Scope, i int) core.Node {
 			f := items.Get()[i]
-			return historyRow(cx, a, f.Title, f.Cover, f.SourceName, "收藏", func() {
-				a.OpenDetail(f.Title, f.Cover, f.DetailURL)
-			}, func() { remove(f) })
+			return historyRow(cx, a, f.Title, f.Cover, f.SourceName,
+				"收藏", 0, "", func() {
+					a.OpenDetail(f.Title, f.Cover, f.DetailURL)
+				}, func() { confirmRemove(f) })
 		},
 		loading, errMsg, refresh, "还没有收藏",
 	)
@@ -148,18 +165,35 @@ func listPage(cx *core.Scope, a *App,
 	}
 }
 
-// historyRow 一条记录：海报 + 标题 + 副信息，可选删除按钮。
-func historyRow(cx *core.Scope, a *App, title, cover, source, sub string, open func(), remove ...func()) core.View {
+// historyRow 一条记录：海报 + 标题 + 进度条/相对时间，可选删除按钮。
+func historyRow(cx *core.Scope, a *App, title, cover, source, sub string, fraction float64, progressText string, open func(), remove ...func()) core.View {
+	p := cx.Palette()
+	// 右侧信息列：副信息 + 进度。
+	var rightChildren []core.Node
+	rightChildren = append(rightChildren, ui.Text(sub, 11, ui.Regular, func() core.Color { return p.TextMuted }))
+	if fraction > 0 && progressText != "" {
+		// 可视化进度条（海报下方细条）+ 已看时间。
+		bar := core.View{
+			Style: core.Style{FlexGrow: 1, Height: core.Pt(3), CornerRadius: 2,
+				Background: p.SurfaceHover, Overflow: core.Hidden},
+			Children: []core.Node{core.View{
+				Style: core.Style{Height: core.Pt(3), Background: p.Accent,
+					Width: core.Pct(float32(fraction * 100))},
+			}},
+		}
+		rightChildren = append(rightChildren, theme.Row(6, bar, ui.Text(progressText, 10, ui.Regular, func() core.Color { return p.TextMuted })))
+	}
+
 	children := []core.Node{
 		theme.Poster(a.API.ImageURL(cover), title, 44, 60),
 		core.View{
 			StyleFunc: func() core.Style { return core.Style{FlexGrow: 1, FlexShrink: 1, Gap: 3} },
 			Children: []core.Node{
 				theme.Title(title, 14, ui.Medium),
-				ui.Text(source, 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
+				ui.Text(source, 12, ui.Regular, func() core.Color { return p.TextMuted }),
 			},
 		},
-		ui.Text(sub, 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
+		core.View{Style: core.Style{Gap: 4}, Children: rightChildren},
 	}
 	if len(remove) > 0 {
 		r := remove[0]
@@ -171,9 +205,51 @@ func historyRow(cx *core.Scope, a *App, title, cover, source, sub string, open f
 			return core.Style{
 				Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12,
 				Padding: core.Symmetric(8, 8), CornerRadius: 8,
+				Hover: &core.Style{Background: p.SurfaceHover},
 			}
 		},
 		Children: children,
 		OnPress:  func(core.PressEvent) { open() },
+	}
+}
+
+// progressFraction 播放进度比例（0-1），数据不全返回 0。
+func progressFraction(position, duration int64) float64 {
+	if duration <= 0 || position <= 0 {
+		return 0
+	}
+	f := float64(position) / float64(duration)
+	if f > 1 {
+		f = 1
+	}
+	return f
+}
+
+// relTime 相对时间：刚刚/N分钟前/N小时前/昨天/日期。
+func relTime(ts string) string {
+	if ts == "" {
+		return ""
+	}
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		// 后端可能是 "2026-11-14 01:02:03"。
+		if t2, err2 := time.ParseInLocation("2006-01-02 15:04:05", ts, time.Local); err2 == nil {
+			t = t2
+		} else {
+			return ""
+		}
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "刚刚"
+	case d < time.Hour:
+		return itoa(int64(d.Minutes())) + "分钟前"
+	case d < 24*time.Hour:
+		return itoa(int64(d.Hours())) + "小时前"
+	case d < 48*time.Hour:
+		return "昨天"
+	default:
+		return t.Format("01-02")
 	}
 }

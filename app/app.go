@@ -25,6 +25,9 @@ type App struct {
 	// Embedded 标记当前连接的是进程内嵌后端（免登录）。
 	Embedded *core.Signal[bool]
 
+	// HomeCache 首页分类数据缓存（跨页签保留）。
+	HomeCache homeCache
+
 	// 打开详情页时携带的上下文。
 	DetailTitle *core.Signal[string]
 	DetailCover *core.Signal[string]
@@ -36,6 +39,9 @@ type App struct {
 	DetailLoading  *core.Signal[bool]
 	DetailErr      *core.Signal[string]
 	DetailPlayBusy *core.Signal[string]
+	// DetailFav 当前详情是否已收藏；DetailNowPlaying 当前正在播的选集 URL（高亮用）。
+	DetailFav        *core.Signal[bool]
+	DetailNowPlaying *core.Signal[string]
 
 	// 播放器入参。
 	PlayTitle     *core.Signal[string]
@@ -50,6 +56,37 @@ type Tab struct {
 	Text  string
 	Icon  func() *core.SVG
 	Admin bool
+}
+
+// homeCache 首页分类数据缓存：key 为 kind|tag|sort。
+type homeCache struct {
+	mu sync.Mutex
+	m  map[string][]api.DoubanItem
+}
+
+const homeCacheMax = 60
+
+func (c *homeCache) Get(key string) ([]api.DoubanItem, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	v, ok := c.m[key]
+	return v, ok
+}
+
+func (c *homeCache) Put(key string, v []api.DoubanItem) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil {
+		c.m = map[string][]api.DoubanItem{}
+	}
+	if len(c.m) >= homeCacheMax {
+		// 简单淘汰：删任意一个（map 遍历顺序不定即可）。
+		for k := range c.m {
+			delete(c.m, k)
+			break
+		}
+	}
+	c.m[key] = v
 }
 
 var tabs = []Tab{
@@ -104,24 +141,26 @@ var embeddedStop func()
 // SetupForTest 构造不读持久化的 App（nsgotest 用）。
 func SetupForTest(cx *core.Scope, base string) *App {
 	a := &App{
-		API:            api.New(base),
-		Server:         core.NewSignal(cx, base),
-		User:           core.NewSignal(cx, (*api.User)(nil)),
-		Tab:            core.NewSignal(cx, "home"),
-		Error:          core.NewSignal(cx, ""),
-		Embedded:       core.NewSignal(cx, false),
-		DetailTitle:    core.NewSignal(cx, ""),
-		DetailCover:    core.NewSignal(cx, ""),
-		DetailURL:      core.NewSignal(cx, ""),
-		DetailSubject:  core.NewSignal(cx, (*api.Subject)(nil)),
-		DetailData:     core.NewSignal(cx, (*api.DetailResp)(nil)),
-		DetailLoading:  core.NewSignal(cx, false),
-		DetailErr:      core.NewSignal(cx, ""),
-		DetailPlayBusy: core.NewSignal(cx, ""),
-		PlayTitle:      core.NewSignal(cx, ""),
-		PlayURL:        core.NewSignal(cx, ""),
-		PlaySource:     core.NewSignal(cx, ""),
-		PlaySourceURL:  core.NewSignal(cx, ""),
+		API:              api.New(base),
+		Server:           core.NewSignal(cx, base),
+		User:             core.NewSignal(cx, (*api.User)(nil)),
+		Tab:              core.NewSignal(cx, "home"),
+		Error:            core.NewSignal(cx, ""),
+		Embedded:         core.NewSignal(cx, false),
+		DetailTitle:      core.NewSignal(cx, ""),
+		DetailCover:      core.NewSignal(cx, ""),
+		DetailURL:        core.NewSignal(cx, ""),
+		DetailSubject:    core.NewSignal(cx, (*api.Subject)(nil)),
+		DetailData:       core.NewSignal(cx, (*api.DetailResp)(nil)),
+		DetailLoading:    core.NewSignal(cx, false),
+		DetailErr:        core.NewSignal(cx, ""),
+		DetailPlayBusy:   core.NewSignal(cx, ""),
+		DetailFav:        core.NewSignal(cx, false),
+		DetailNowPlaying: core.NewSignal(cx, ""),
+		PlayTitle:        core.NewSignal(cx, ""),
+		PlayURL:          core.NewSignal(cx, ""),
+		PlaySource:       core.NewSignal(cx, ""),
+		PlaySourceURL:    core.NewSignal(cx, ""),
 	}
 	return a
 }

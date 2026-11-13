@@ -1,6 +1,7 @@
 package app
 
 import (
+	"html"
 	"time"
 
 	"kanju/client/api"
@@ -10,50 +11,40 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Search 流式搜索页：输入关键词，SSE 逐站返回结果。
+// Search 搜索页：豆瓣关键词搜索（一次性返回、按影片去重，与 Web 版一致）。
 func Search(cx *core.Scope, a *App) core.Node {
 	keyword := core.NewSignal(cx, "")
 	running := core.NewSignal(cx, false)
-	meta := core.NewSignal(cx, "")
-	summary := core.NewSignal(cx, "")
-	results := core.NewSignalFunc(cx, []api.SearchItem(nil), func(a, b []api.SearchItem) bool { return false })
+	results := core.NewSignalFunc(cx, []api.DoubanItem(nil), func(a, b []api.DoubanItem) bool { return false })
 	errMsg := core.NewSignal(cx, "")
-	stopCh := make(chan struct{})
+	searched := core.NewSignal(cx, false) // 已搜过（区分未搜索的空态）
+
+	// 竞态防护：关键词 key，过期响应丢弃。
+	reqKey := core.NewSignal(cx, "")
 
 	submit := func() {
 		kw := trimSpace(keyword.Get())
 		if kw == "" || running.Get() {
 			return
 		}
+		reqKey.Set(kw)
 		running.Set(true)
 		errMsg.Set("")
-		summary.Set("")
-		meta.Set("")
 		results.Set(nil)
+		searched.Set(true)
 		client := a.API
 		go func() {
-			err := client.SearchStream(kw, "", stopCh,
-				func(m api.SearchMeta) {
-					cx.Post(func() { meta.Set(itoa(int64(m.Total)) + " 个站源") })
-				},
-				func(s api.SearchSource) {
-					cx.Post(func() {
-						if s.Error != "" {
-							summary.Set(summary.Get() + "〔" + s.SourceName + " 失败〕")
-							return
-						}
-						if len(s.Items) > 0 {
-							cur := append(results.Get(), s.Items...)
-							results.Set(cur)
-						}
-					})
-				},
-				nil,
-			)
+			list, err := client.DoubanSearch(kw)
 			cx.Post(func() {
 				running.Set(false)
+				if reqKey.Get() != kw {
+					return
+				}
 				if err != nil {
 					errMsg.Set(err.Error())
+					results.Set(nil)
+				} else {
+					results.Set(list)
 				}
 			})
 		}()
@@ -75,18 +66,12 @@ func Search(cx *core.Scope, a *App) core.Node {
 		Children: []core.Node{
 			inputRow,
 			core.Dynamic(func(*core.Scope) core.Node {
-				parts := ""
-				if meta.Get() != "" {
-					parts = meta.Get()
-				}
+				// 状态行：搜索中 / 结果计数。
+				var parts string
 				if running.Get() {
-					if parts != "" {
-						parts += " · "
-					}
-					parts += "搜索中…"
-				}
-				if summary.Get() != "" {
-					parts += summary.Get()
+					parts = "搜索中…"
+				} else if n := len(results.Get()); n > 0 {
+					parts = itoa(int64(n)) + " 个结果"
 				}
 				if parts == "" {
 					return core.View{}
@@ -95,18 +80,24 @@ func Search(cx *core.Scope, a *App) core.Node {
 			}),
 			core.Dynamic(func(*core.Scope) core.Node {
 				if e := errMsg.Get(); e != "" {
-					return ui.Text(e, 13, ui.Regular, func() core.Color { return cx.Palette().Danger })
+					return theme.ErrorRetry(cx, e, func() { submit() })
 				}
 				return core.View{}
 			}),
-			searchGrid(cx, a, results),
+			core.Dynamic(func(*core.Scope) core.Node {
+				// 首次搜索且无结果时显示骨架。
+				if running.Get() && len(results.Get()) == 0 {
+					return theme.SkeletonGrid(cx, 2, 4)
+				}
+				return core.View{}
+			}),
+			searchGrid(cx, a, results, searched),
 		},
 	}
 }
 
-// searchGrid 搜索结果网格。列表常驻（不因结果为空而销毁重建），
-// SSE 逐站追加结果时保持滚动位置。
-func searchGrid(cx *core.Scope, a *App, results *core.Signal[[]api.SearchItem]) core.Node {
+// searchGrid 搜索结果网格。列表常驻，结果更新时保持滚动位置。
+func searchGrid(cx *core.Scope, a *App, results *core.Signal[[]api.DoubanItem], searched *core.Signal[bool]) core.Node {
 	const gap = core.Points(14)
 	return core.List{
 		Count:         func() int { return len(results.Get()) },
@@ -116,7 +107,12 @@ func searchGrid(cx *core.Scope, a *App, results *core.Signal[[]api.SearchItem]) 
 		Viewport:      core.ListViewportOwn,
 		Gap:           gap + 8,
 		ColumnGap:     gap,
-		Empty:         theme.Empty(cx, "输入关键词开始搜索"),
+		Empty: core.Dynamic(func(*core.Scope) core.Node {
+			if searched.Get() {
+				return theme.Empty(cx, "未找到相关影片，试试其它关键词")
+			}
+			return theme.Empty(cx, "输入关键词开始搜索")
+		}),
 		Row: func(cx *core.Scope, row core.ListRow) core.Node {
 			it := results.Get()[row.Index()]
 			return searchCell(cx, a, it)
@@ -125,31 +121,49 @@ func searchGrid(cx *core.Scope, a *App, results *core.Signal[[]api.SearchItem]) 
 	}
 }
 
-// searchCell 单个结果：点击直接进入详情聚合。
-func searchCell(cx *core.Scope, a *App, it api.SearchItem) core.Node {
+// searchCell 单个结果：点击进豆瓣详情（id 可用时）或原 URL。
+func searchCell(cx *core.Scope, a *App, it api.DoubanItem) core.Node {
+	// 豆瓣搜索结果常带 HTML 实体，解码后展示。
+	title := html.UnescapeString(it.Title)
 	return core.View{
 		Style: core.Style{Gap: 6},
 		Children: []core.Node{
 			core.View{
-				Style: core.Style{Width: core.Pct(100), AspectRatio: 0.7, CornerRadius: 6, Background: core.RGB(0xD9D9D9), Overflow: core.Hidden},
+				StyleFunc: func() core.Style {
+					return core.Style{
+						Width: core.Pct(100), AspectRatio: 0.7, CornerRadius: 6,
+						Background: core.RGB(0xD9D9D9), Overflow: core.Hidden,
+						Hover:  &core.Style{Background: core.RGB(0xC8C8C8)},
+						Active: &core.Style{Transform: core.Transform{Scale: 0.98}},
+					}
+				},
 				Children: []core.Node{
 					core.Image{
 						Source:       core.Src(a.API.ImageURL(it.Cover)),
 						ResizeMode:   core.Cover,
-						Label:        it.Title,
+						Label:        title,
 						FadeDuration: time.Millisecond,
 						Style:        core.Style{Width: core.Pct(100), Height: core.Pct(100)},
 					},
+					ratingBadge(cx, it.Rate),
 				},
 				OnPress: func(core.PressEvent) {
-					a.OpenDetail(it.Title, it.Cover, it.URL)
+					if it.ID != "" {
+						a.OpenDetail(title, it.Cover, "https://movie.douban.com/subject/"+it.ID+"/")
+					} else {
+						a.OpenDetail(title, it.Cover, it.URL)
+					}
 				},
 			},
-			theme.Title(it.Title, 13, ui.Medium),
-			ui.Text(it.SourceName, 11, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
+			theme.Title(title, 13, ui.Medium),
+			posterSubtitle(cx, it),
 		},
 		OnPress: func(core.PressEvent) {
-			a.OpenDetail(it.Title, it.Cover, it.URL)
+			if it.ID != "" {
+				a.OpenDetail(title, it.Cover, "https://movie.douban.com/subject/"+it.ID+"/")
+			} else {
+				a.OpenDetail(title, it.Cover, it.URL)
+			}
 		},
 	}
 }

@@ -43,6 +43,33 @@ type tabOpt struct {
 	Tag   string
 }
 
+// currentTagOf 从首页分类信号算出当前请求参数。
+func currentTagOf(kind *core.Signal[string], sub, child *core.Signal[int]) (k, tag, sort string) {
+	k = kind.Get()
+	var gs []tabGroup
+	if k == "tv" {
+		gs = tvTabs
+	} else {
+		gs = movieTabs
+	}
+	si := sub.Get()
+	if si < 0 || si >= len(gs) {
+		return k, "热门", ""
+	}
+	g := gs[si]
+	if len(g.Children) == 0 {
+		return k, g.Tag, ""
+	}
+	ci := child.Get()
+	if ci < 0 || ci >= len(g.Children) {
+		ci = 0
+	}
+	if k == "tv" && si == 1 && ci == 1 {
+		return k, g.Children[ci].Tag, "time"
+	}
+	return k, g.Children[ci].Tag, ""
+}
+
 // Home 首页：电影/剧集分类 + 封面网格。
 func Home(cx *core.Scope, a *App) core.Node {
 	kind := core.NewSignal(cx, "tv") // tv | movie
@@ -55,6 +82,25 @@ func Home(cx *core.Scope, a *App) core.Node {
 	// 分页：每页条数与加载中标记。
 	const pageLimit = 30
 	pageLoading := core.NewSignal(cx, false)
+	noMore := core.NewSignal(cx, false)
+
+	// 请求竞态防护：每次请求带分类 key，响应回来 key 不一致就丢弃。
+	reqKey := core.NewSignal(cx, "")
+	categoryKey := func() string {
+		k, tag, sort := currentTagOf(kind, sub, child)
+		return k + "|" + tag + "|" + sort
+	}
+
+	// 分类缓存：切换分类即时命中，免白屏（跨页签保留在 App 上）。
+	applyCache := func() {
+		if v, ok := a.HomeCache.Get(categoryKey()); ok {
+			items.Set(v)
+			noMore.Set(len(v) < pageLimit)
+		} else {
+			items.Set(nil)
+			noMore.Set(false)
+		}
+	}
 
 	groups := func() []tabGroup {
 		if kind.Get() == "tv" {
@@ -64,27 +110,22 @@ func Home(cx *core.Scope, a *App) core.Node {
 	}
 
 	currentTag := func() (tag, sort string) {
-		gs := groups()
-		si := sub.Get()
-		if si < 0 || si >= len(gs) {
-			return "热门", ""
-		}
-		g := gs[si]
-		if len(g.Children) == 0 {
-			return g.Tag, ""
-		}
-		ci := child.Get()
-		if ci < 0 || ci >= len(g.Children) {
-			ci = 0
-		}
-		if kind.Get() == "tv" && si == 1 && ci == 1 {
-			return g.Children[ci].Tag, "time"
-		}
-		return g.Children[ci].Tag, ""
+		_, t, s := currentTagOf(kind, sub, child)
+		return t, s
 	}
 
 	load := func() {
+		key := categoryKey()
+		// 分类未变且已有数据时不重拉（chips 连点防抖）。
+		if !loading.Get() && len(items.Get()) > 0 && reqKey.GetUntracked() == key {
+			return
+		}
+		reqKey.Set(key)
 		tag, sort := currentTag()
+		applyCache()
+		if len(items.Get()) > 0 {
+			return // 缓存命中，不闪白
+		}
 		loading.Set(true)
 		errMsg.Set("")
 		client := a.API
@@ -93,11 +134,16 @@ func Home(cx *core.Scope, a *App) core.Node {
 			list, err := client.DoubanList(k, tag, sort, pageLimit, 0)
 			cx.Post(func() {
 				loading.Set(false)
+				if reqKey.Get() != key {
+					return // 过期响应丢弃
+				}
 				if err != nil {
 					errMsg.Set(err.Error())
 					items.Set(nil)
 				} else {
 					items.Set(list)
+					a.HomeCache.Put(key, list)
+					noMore.Set(len(list) < pageLimit)
 				}
 			})
 		}()
@@ -105,32 +151,37 @@ func Home(cx *core.Scope, a *App) core.Node {
 
 	// 分页加载：滚近列表尾部时由 List 的 OnLoadMore 触发。
 	loadMore := func() {
-		if loading.Get() || pageLoading.Get() {
+		if loading.Get() || pageLoading.Get() || noMore.Get() {
 			return
 		}
 		cur := items.Get()
 		if len(cur) == 0 || len(cur) < pageLimit { // 不足一页说明到底了
+			noMore.Set(true)
 			return
+		}
+		key := categoryKey()
+		if reqKey.Get() != key {
+			return // 分类已切换，丢弃旧分页
 		}
 		tag, sort := currentTag()
 		k := kind.Get()
 		start := len(cur)
 		client := a.API
 		pageLoading.Set(true)
-		ClientLog("[home] load page start=%d tag=%s", start, tag)
 		go func() {
 			list, err := client.DoubanList(k, tag, sort, pageLimit, start)
 			cx.Post(func() {
 				pageLoading.Set(false)
-				if err != nil {
-					ClientLog("[home] load page error: %v", err)
+				if reqKey.Get() != key || err != nil || len(list) == 0 {
+					if len(list) < pageLimit {
+						noMore.Set(true)
+					}
 					return
 				}
-				ClientLog("[home] load page got %d items", len(list))
-				if len(list) == 0 {
-					return
-				}
-				items.Set(append(cur, list...))
+				merged := append(cur, list...)
+				items.Set(merged)
+				a.HomeCache.Put(key, merged)
+				noMore.Set(len(list) < pageLimit)
 			})
 		}()
 	}
@@ -151,15 +202,16 @@ func Home(cx *core.Scope, a *App) core.Node {
 			kindSwitcher(cx, kind, sub, child, groups),
 			core.Dynamic(func(*core.Scope) core.Node {
 				switch {
-				case loading.Get():
-					return theme.Row(8, ui.Spinner{}, ui.Text("加载中…", 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }))
-				case errMsg.Get() != "":
-					return ui.Text(errMsg.Get(), 13, ui.Regular, func() core.Color { return cx.Palette().Danger })
+				case loading.Get() && len(items.Get()) == 0:
+					// 首屏骨架：比 spinner 有内容感。
+					return theme.SkeletonGrid(cx, 2, 4)
+				case errMsg.Get() != "" && len(items.Get()) == 0:
+					return theme.ErrorRetry(cx, errMsg.Get(), func() { load() })
 				default:
 					return core.View{}
 				}
 			}),
-			posterGrid(cx, a, items, loadMore),
+			posterGrid(cx, a, items, loadMore, pageLoading, noMore),
 		},
 	}
 }
@@ -262,7 +314,7 @@ func chipButton(cx *core.Scope, label string, active bool, press func()) core.No
 // posterGrid 封面网格（虚拟化列表，按宽度自适应列数）。
 // 注意不要在外层 core.Dynamic 里读 items——追加分页会整树重建 List
 // 导致滚动位置归零；List 的 Count/Row 本身就响应数据变化。
-func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], loadMore func()) core.Node {
+func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], loadMore func(), pageLoading, noMore *core.Signal[bool]) core.Node {
 	// 列宽估算：窗口内容区约 700-1100pt，4 列。行高 = 列宽/0.7（海报）+ 文字两行 + 间距。
 	const columns = 4
 	const gap = core.Points(14)
@@ -280,6 +332,23 @@ func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], lo
 			it := items.Get()[row.Index()]
 			return posterCell(cx, a, it)
 		},
+		Footer: core.Dynamic(func(*core.Scope) core.Node {
+			p := cx.Palette()
+			text := ""
+			switch {
+			case pageLoading.Get():
+				text = "加载中…"
+			case noMore.Get() && len(items.Get()) > 0:
+				text = "已加载全部"
+			}
+			if text == "" {
+				return core.View{}
+			}
+			return core.View{
+				Style:    core.Style{AlignItems: core.AlignCenter, Padding: core.All(14)},
+				Children: []core.Node{core.Text{Content: text, Style: core.Style{FontSize: 12, Color: p.TextMuted}}},
+			}
+		}),
 		Style: core.Style{FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(4, 0)},
 	}
 }
@@ -287,31 +356,28 @@ func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], lo
 // posterCell 单个海报卡片：点击进豆瓣详情。
 func posterCell(cx *core.Scope, a *App, it api.DoubanItem) core.Node {
 	title := it.Title
-	subtitle := it.Rate
-	if subtitle != "" {
-		subtitle = "★ " + subtitle
-	}
-	if it.EpisodesInfo != "" {
-		if subtitle != "" {
-			subtitle += " · " + it.EpisodesInfo
-		} else {
-			subtitle = it.EpisodesInfo
-		}
-	}
 	return core.View{
 		Style: core.Style{Gap: 6},
 		Children: []core.Node{
 			core.View{
-				Style: core.Style{Width: core.Pct(100), AspectRatio: 0.7, CornerRadius: 6, Background: core.RGB(0xD9D9D9), Overflow: core.Hidden},
+				StyleFunc: func() core.Style {
+					return core.Style{
+						Width: core.Pct(100), AspectRatio: 0.7, CornerRadius: 6,
+						Background: core.RGB(0xD9D9D9), Overflow: core.Hidden,
+						// 悬停微亮，按下有缩放反馈。
+						Hover:  &core.Style{Background: core.RGB(0xC8C8C8)},
+						Active: &core.Style{Transform: core.Transform{Scale: 0.98}},
+					}
+				},
 				Children: []core.Node{
 					core.Image{
-						Source:     core.Src(a.API.ImageURL(it.Cover)),
-						ResizeMode: core.Cover,
-						Label:      title,
-						// 滚动中不淡入，减少动画开销。
+						Source:       core.Src(a.API.ImageURL(it.Cover)),
+						ResizeMode:   core.Cover,
+						Label:        title,
 						FadeDuration: time.Millisecond,
 						Style:        core.Style{Width: core.Pct(100), Height: core.Pct(100)},
 					},
+					ratingBadge(cx, it.Rate),
 				},
 				OnPress: func(core.PressEvent) {
 					if it.ID != "" {
@@ -322,7 +388,30 @@ func posterCell(cx *core.Scope, a *App, it api.DoubanItem) core.Node {
 				},
 			},
 			theme.Title(title, 13, ui.Medium),
-			ui.Text(subtitle, 11, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
+			posterSubtitle(cx, it),
 		},
 	}
+}
+
+// ratingBadge 海报左上角的半透明评分角标。
+func ratingBadge(cx *core.Scope, rate string) core.Node {
+	if rate == "" || rate == "0" {
+		return core.View{}
+	}
+	return core.View{
+		Style: core.Style{
+			Position: core.Absolute, Top: core.Pt(6), Left: core.Pt(6),
+			Padding: core.Symmetric(1, 6), CornerRadius: 4,
+			Background: core.RGB(0x000000B8), Color: core.RGB(0xFFD166), FontSize: 11,
+		},
+		Children: []core.Node{core.Text{Content: "★ " + rate}},
+	}
+}
+
+// posterSubtitle 副标题：集数信息（评分已上角标）。
+func posterSubtitle(cx *core.Scope, it api.DoubanItem) core.Node {
+	if it.EpisodesInfo == "" {
+		return core.View{}
+	}
+	return ui.Text(it.EpisodesInfo, 11, ui.Regular, func() core.Color { return cx.Palette().TextMuted })
 }
