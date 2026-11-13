@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	"kanju/client/api"
 	"kanju/client/theme"
 
@@ -126,16 +128,17 @@ func searchGrid(cx *core.Scope, a *App, results *core.Signal[[]api.SearchItem]) 
 // searchCell 单个结果：点击直接进入详情聚合。
 func searchCell(cx *core.Scope, a *App, it api.SearchItem) core.Node {
 	return core.View{
-		StyleFunc: func() core.Style { return core.Style{Gap: 6} },
+		Style: core.Style{Gap: 6},
 		Children: []core.Node{
 			core.View{
-				Style:   core.Style{Width: core.Pct(100), AspectRatio: 0.7, CornerRadius: 6, Background: core.RGB(0xD9D9D9), Overflow: core.Hidden},
+				Style: core.Style{Width: core.Pct(100), AspectRatio: 0.7, CornerRadius: 6, Background: core.RGB(0xD9D9D9), Overflow: core.Hidden},
 				Children: []core.Node{
 					core.Image{
-						Source:     core.Src(a.API.ImageURL(it.Cover)),
-						ResizeMode: core.Cover,
-						Label:      it.Title,
-						Style:      core.Style{Width: core.Pct(100), Height: core.Pct(100)},
+						Source:       core.Src(a.API.ImageURL(it.Cover)),
+						ResizeMode:   core.Cover,
+						Label:        it.Title,
+						FadeDuration: time.Millisecond,
+						Style:        core.Style{Width: core.Pct(100), Height: core.Pct(100)},
 					},
 				},
 				OnPress: func(core.PressEvent) {

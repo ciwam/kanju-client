@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	"kanju/client/api"
 	"kanju/client/theme"
 
@@ -273,14 +275,8 @@ func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], lo
 		Viewport:      core.ListViewportOwn,
 		Gap:           gap + 8,
 		ColumnGap:     gap,
-		OnScroll: func(ev core.ScrollEvent) {
-			ClientLog("[home] scroll offsetY=%.0f contentH=%.0f viewH=%.0f", ev.Offset.Y, ev.ContentSize.Height, ev.Size.Height)
-		},
-		OnLoadMore: loadMore,
+		OnLoadMore:    loadMore,
 		Row: func(cx *core.Scope, row core.ListRow) core.Node {
-			if row.Index()%8 == 0 {
-				ClientLog("[home] mount row %d (of %d)", row.Index(), len(items.Get()))
-			}
 			it := items.Get()[row.Index()]
 			return posterCell(cx, a, it)
 		},
@@ -303,9 +299,7 @@ func posterCell(cx *core.Scope, a *App, it api.DoubanItem) core.Node {
 		}
 	}
 	return core.View{
-		StyleFunc: func() core.Style {
-			return core.Style{Gap: 6}
-		},
+		Style: core.Style{Gap: 6},
 		Children: []core.Node{
 			core.View{
 				Style: core.Style{Width: core.Pct(100), AspectRatio: 0.7, CornerRadius: 6, Background: core.RGB(0xD9D9D9), Overflow: core.Hidden},
@@ -314,7 +308,9 @@ func posterCell(cx *core.Scope, a *App, it api.DoubanItem) core.Node {
 						Source:     core.Src(a.API.ImageURL(it.Cover)),
 						ResizeMode: core.Cover,
 						Label:      title,
-						Style:      core.Style{Width: core.Pct(100), Height: core.Pct(100)},
+						// 滚动中不淡入，减少动画开销。
+						FadeDuration: time.Millisecond,
+						Style:        core.Style{Width: core.Pct(100), Height: core.Pct(100)},
 					},
 				},
 				OnPress: func(core.PressEvent) {
