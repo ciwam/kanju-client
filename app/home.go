@@ -275,7 +275,7 @@ func posterCell(cx *core.Scope, a *App, it api.DoubanItem) core.Node {
 					}
 				},
 			},
-			ui.Text(title, 13, ui.Medium, nil),
+			theme.Title(title, 13, ui.Medium),
 			ui.Text(subtitle, 11, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
 		},
 	}

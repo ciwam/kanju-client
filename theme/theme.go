@@ -73,3 +73,8 @@ func Empty(cx *core.Scope, text string) core.View {
 		}},
 	}
 }
+
+// Title 无色覆盖的标题/正文文字（继承父视图颜色）。
+func Title(content string, size core.Points, weight core.FontWeight) core.Text {
+	return core.Text{Content: content, Style: core.Style{FontSize: size, FontWeight: weight}}
+}

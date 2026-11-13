@@ -26,9 +26,9 @@ func Settings(cx *core.Scope, a *App) core.Node {
 			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 14})
 		},
 		Children: []core.Node{
-			ui.Text("设置", 20, ui.Semibold, nil),
+			theme.Title("设置", 20, ui.Semibold),
 			theme.Card(cx,
-				ui.Text("服务器", 14, ui.Semibold, nil),
+				theme.Title("服务器", 14, ui.Semibold),
 				core.View{
 					StyleFunc: func() core.Style { return core.Style{Direction: core.Row, Gap: 8} },
 					Children: []core.Node{
@@ -46,7 +46,7 @@ func Settings(cx *core.Scope, a *App) core.Node {
 				}),
 			),
 			theme.Card(cx,
-				ui.Text("账号", 14, ui.Semibold, nil),
+				theme.Title("账号", 14, ui.Semibold),
 				ui.Text(userName(a), 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
 				ui.Button{Text: "退出登录", Variant: ui.ButtonSecondary, OnPress: func() { a.Logout(cx) }},
 			),

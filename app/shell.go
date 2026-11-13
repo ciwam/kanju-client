@@ -1,6 +1,7 @@
 package app
 
 import (
+	"kanju/client/theme"
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -21,16 +22,20 @@ func Shell(cx *core.Scope, a *App) core.Node {
 		sections = append(sections, ui.SidebarSection{Items: items})
 		userRow := ui.Text(userName(a), 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted })
 
+		// 内嵌模式没有"退出登录"的概念，只显示用户名；外部服务器才可退出。
+		var footer []core.Node
+		footer = append(footer, userRow)
+		if !a.Embedded.Get() {
+			footer = append(footer, ui.Button{Text: "退出登录", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				OnPress: func() { a.Logout(cx) }, TestID: "logout"})
+		}
+
 		return ui.SidebarShell{
-			TestID:   "shell",
-			Sidebar:  []core.Node{ui.Sidebar{Sections: sections, Selected: a.Tab.Get, OnSelect: a.Tab.Set}},
-			SidebarFooter: []core.Node{
-				userRow,
-				ui.Button{Text: "退出登录", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-					OnPress: func() { a.Logout(cx) }, TestID: "logout"},
-			},
+			TestID:        "shell",
+			Sidebar:       []core.Node{ui.Sidebar{Sections: sections, Selected: a.Tab.Get, OnSelect: a.Tab.Set}},
+			SidebarFooter: footer,
 			Header: []core.Node{core.Dynamic(func(*core.Scope) core.Node {
-				return ui.Text(tabTitle(a.Tab.Get()), 15, ui.Semibold, nil)
+				return theme.Title(tabTitle(a.Tab.Get()), 15, ui.Semibold)
 			})},
 			Content: []core.Node{core.Dynamic(func(*core.Scope) core.Node {
 				return page(cx, a, a.Tab.Get())

@@ -91,7 +91,7 @@ func Sources(cx *core.Scope, a *App) core.Node {
 		},
 		Children: []core.Node{
 			theme.Card(cx,
-				ui.Text("添加站源", 14, ui.Semibold, nil),
+				theme.Title("添加站源", 14, ui.Semibold),
 				core.View{
 					StyleFunc: func() core.Style { return core.Style{Direction: core.Row, Gap: 8} },
 					Children: []core.Node{
@@ -145,7 +145,7 @@ func sourceRow(cx *core.Scope, s api.SiteSource, toggle, del func(api.SiteSource
 			core.View{
 				StyleFunc: func() core.Style { return core.Style{FlexGrow: 1, FlexShrink: 1, Gap: 2} },
 				Children: []core.Node{
-					ui.Text(s.Name, 14, ui.Medium, nil),
+					theme.Title(s.Name, 14, ui.Medium),
 					ui.Text(s.BaseURL, 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
 				},
 			},

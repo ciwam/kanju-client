@@ -130,7 +130,7 @@ func searchCell(cx *core.Scope, a *App, it api.SearchItem) core.Node {
 		StyleFunc: func() core.Style { return core.Style{Gap: 6, Padding: core.Symmetric(0, 6)} },
 		Children: []core.Node{
 			theme.Poster(a.API.ImageURL(it.Cover), it.Title, 150, 210),
-			ui.Text(it.Title, 13, ui.Medium, nil),
+			theme.Title(it.Title, 13, ui.Medium),
 			ui.Text(it.SourceName, 11, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
 		},
 		OnPress: func(core.PressEvent) {

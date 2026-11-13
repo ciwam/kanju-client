@@ -112,7 +112,7 @@ func liveRow(cx *core.Scope, a *App, ch api.LiveChannel) core.View {
 			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, Padding: core.Symmetric(6, 8)}
 		},
 		Children: []core.Node{
-			ui.Text(ch.Name, 14, ui.Medium, nil),
+			theme.Title(ch.Name, 14, ui.Medium),
 		},
 		OnPress: func(core.PressEvent) {
 			a.OpenPlayer(ch.Name, ch.URL, "直播", "")

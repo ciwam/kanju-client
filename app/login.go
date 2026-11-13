@@ -74,8 +74,8 @@ func Login(cx *core.Scope, a *App) core.Node {
 	}
 
 	return centered(cx, theme.Col(14,
-		ui.Text("Kanju", 34, ui.Bold, nil),
-		ui.Text("视频聚合播放 · 内置服务已就绪", 14, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
+		theme.Title("Kanju", 34, ui.Bold),
+		ui.Text("视频聚合播放 · 连接外部服务器", 14, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
 		theme.Col(6,
 			serverRow(cx, serverDraft, saveServer),
 			theme.Col(10,

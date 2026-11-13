@@ -22,6 +22,8 @@ type App struct {
 	User   *core.Signal[*api.User]
 	Tab    *core.Signal[string]
 	Error  *core.Signal[string]
+	// Embedded 标记当前连接的是进程内嵌后端（免登录）。
+	Embedded *core.Signal[bool]
 
 	// 打开详情页时携带的上下文。
 	DetailTitle *core.Signal[string]
@@ -72,6 +74,9 @@ func EmbeddedBackend(cx *core.Scope) (string, error) {
 		opts := backend.ServeOptions{
 			// 空端口 = 自动分配，避免与用户可能在跑的外部 kanju 冲突。
 			DBPath: dir + "/kanju.db",
+			// 内嵌模式免登录：只绑 127.0.0.1，无对外暴露；鉴权全开时
+			// 用户每次打开 app 都要先输账号密码，没有意义。
+			NoAuth: true,
 		}
 		addr, stop, err := backend.Start(opts)
 		if err != nil {
@@ -96,6 +101,7 @@ func SetupForTest(cx *core.Scope, base string) *App {
 		User:          core.NewSignal(cx, (*api.User)(nil)),
 		Tab:           core.NewSignal(cx, "home"),
 		Error:         core.NewSignal(cx, ""),
+		Embedded:      core.NewSignal(cx, false),
 		DetailTitle:   core.NewSignal(cx, ""),
 		DetailCover:   core.NewSignal(cx, ""),
 		DetailURL:     core.NewSignal(cx, ""),
@@ -109,20 +115,30 @@ func SetupForTest(cx *core.Scope, base string) *App {
 
 // Setup 在根 scope 上初始化信号与持久化状态。
 func Setup(cx *core.Scope) *App {
-	// 优先启动进程内嵌后端：开箱即用，无需外部服务。
+	// 优先启动进程内嵌后端：开箱即用，无需外部服务，也无需登录
+	// （NoAuth 虚拟 admin，见 EmbeddedBackend）。
 	defaultBase := "http://127.0.0.1:28088"
+	embedded := false
 	if addr, err := EmbeddedBackend(cx); err == nil {
 		defaultBase = addr
+		embedded = true
 	} else {
 		log.Printf("embedded backend failed to start: %v", err)
 	}
 
 	a := SetupForTest(cx, defaultBase)
+	a.Embedded.Set(embedded)
 	store := cx.Storage()
 	if server, ok := store.GetItem("server"); ok && server != "" {
 		a.API.Base = server
 		a.Server.Set(server)
 	}
+	// 内嵌后端免登录：直接以虚拟 admin 进入主界面。
+	if embedded && a.API.Base == defaultBase {
+		a.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
+		return a
+	}
+	// 外部服务器：走常规 token 流程。
 	if token, ok := store.GetItem("token"); ok && token != "" {
 		a.API.SetToken(token)
 		// 启动时校验 token，失效则清除。
@@ -155,13 +171,20 @@ func (a *App) Logout(cx *core.Scope) {
 	cx.Storage().RemoveItem("token")
 }
 
-// SetServer 切换后端地址并重置登录态。
+// SetServer 切换后端地址并重置登录态。切回内嵌地址时免登录。
 func (a *App) SetServer(cx *core.Scope, base string) {
 	a.API.Base = base
 	a.Server.Set(base)
 	cx.Storage().SetItem("server", base)
 	a.Logout(cx)
+	if addr, err := EmbeddedBackend(cx); err == nil && base == addr {
+		a.Embedded.Set(true)
+		a.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
+	} else {
+		a.Embedded.Set(false)
+	}
 }
+
 
 // OpenDetail 记录上下文并跳到详情页签。
 func (a *App) OpenDetail(title, cover, detailURL string) {

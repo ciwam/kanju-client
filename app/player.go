@@ -67,7 +67,7 @@ func Player(cx *core.Scope, a *App) core.Node {
 					},
 				}
 				row := theme.Row(10,
-					ui.Text(title, 15, ui.Semibold, nil),
+					theme.Title(title, 15, ui.Semibold),
 				)
 				status := core.Dynamic(func(*core.Scope) core.Node {
 					msg := ""

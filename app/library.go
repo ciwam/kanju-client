@@ -155,7 +155,7 @@ func historyRow(cx *core.Scope, a *App, title, cover, source, sub string, open f
 		core.View{
 			StyleFunc: func() core.Style { return core.Style{FlexGrow: 1, FlexShrink: 1, Gap: 3} },
 			Children: []core.Node{
-				ui.Text(title, 14, ui.Medium, nil),
+				theme.Title(title, 14, ui.Medium),
 				ui.Text(source, 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
 			},
 		},

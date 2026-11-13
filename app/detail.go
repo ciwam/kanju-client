@@ -67,7 +67,7 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 			if s != nil {
 				head = append(head, subjectHead(cx, a, s)...)
 			} else {
-				head = append(head, ui.Text(a.DetailTitle.Get(), 20, ui.Semibold, nil))
+				head = append(head, theme.Title(a.DetailTitle.Get(), 20, ui.Semibold))
 			}
 			children := []core.Node{}
 			children = append(children, head...)
@@ -159,7 +159,7 @@ func subjectHead(cx *core.Scope, a *App, s *api.Subject) []core.Node {
 	if coverURL == "" {
 		coverURL = a.DetailCover.Get()
 	}
-	info := []core.Node{ui.Text(s.Title, 20, ui.Semibold, nil)}
+	info := []core.Node{theme.Title(s.Title, 20, ui.Semibold)}
 	meta := s.Year
 	if s.Rating != "" {
 		if meta != "" {
@@ -219,7 +219,7 @@ func channelSection(cx *core.Scope, a *App, ch api.Channel, play func(api.Episod
 		})
 	}
 	return theme.Card(cx,
-		ui.Text(name, 14, ui.Semibold, nil),
+		theme.Title(name, 14, ui.Semibold),
 		epRow,
 	)
 }
