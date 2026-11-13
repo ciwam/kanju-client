@@ -221,24 +221,30 @@ func chipButton(cx *core.Scope, label string, active bool, press func()) core.No
 	})
 }
 
-// posterGrid 封面网格（虚拟化列表，4 列）。
+// posterGrid 封面网格（虚拟化列表，按宽度自适应列数）。
 func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem]) core.Node {
 	return core.Dynamic(func(*core.Scope) core.Node {
 		list := items.Get()
 		if len(list) == 0 {
 			return core.View{}
 		}
+		// 列宽估算：窗口内容区约 700-1100pt，4 列。行高 = 列宽/0.7（海报）+ 文字两行 + 间距。
+		const columns = 4
+		const gap = core.Points(14)
+		estimated := core.Points(160/0.7) + 44
 		return core.List{
 			Count:         func() int { return len(items.Get()) },
 			Key:           func(i int) any { return items.Get()[i].URL },
-			NumColumns:    4,
-			EstimatedSize: 240,
+			NumColumns:    columns,
+			EstimatedSize: estimated,
 			Viewport:      core.ListViewportOwn,
+			Gap:           gap + 8,
+			ColumnGap:     gap,
 			Row: func(cx *core.Scope, row core.ListRow) core.Node {
 				it := items.Get()[row.Index()]
 				return posterCell(cx, a, it)
 			},
-			Style: core.Style{FlexGrow: 1, FlexShrink: 1},
+			Style: core.Style{FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(4, 0)},
 		}
 	})
 }
@@ -259,13 +265,18 @@ func posterCell(cx *core.Scope, a *App, it api.DoubanItem) core.Node {
 	}
 	return core.View{
 		StyleFunc: func() core.Style {
-			return core.Style{Gap: 6, Padding: core.Symmetric(0, 6)}
+			return core.Style{Gap: 6}
 		},
 		Children: []core.Node{
 			core.View{
-				Style: core.Style{Width: core.Pct(100)},
+				Style: core.Style{Width: core.Pct(100), AspectRatio: 0.7, CornerRadius: 6, Background: core.RGB(0xD9D9D9), Overflow: core.Hidden},
 				Children: []core.Node{
-					theme.Poster(a.API.ImageURL(it.Cover), title, 150, 210),
+					core.Image{
+						Source:     core.Src(a.API.ImageURL(it.Cover)),
+						ResizeMode: core.Cover,
+						Label:      title,
+						Style:      core.Style{Width: core.Pct(100), Height: core.Pct(100)},
+					},
 				},
 				OnPress: func(core.PressEvent) {
 					if it.ID != "" {

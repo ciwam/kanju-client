@@ -109,17 +109,20 @@ func searchGrid(cx *core.Scope, a *App, results *core.Signal[[]api.SearchItem]) 
 		if len(list) == 0 {
 			return theme.Empty(cx, "输入关键词开始搜索")
 		}
+		const gap = core.Points(14)
 		return core.List{
 			Count:         func() int { return len(results.Get()) },
 			Key:           func(i int) any { return results.Get()[i].URL },
 			NumColumns:    4,
-			EstimatedSize: 240,
+			EstimatedSize: core.Points(160/0.7) + 44,
 			Viewport:      core.ListViewportOwn,
+			Gap:           gap + 8,
+			ColumnGap:     gap,
 			Row: func(cx *core.Scope, row core.ListRow) core.Node {
 				it := results.Get()[row.Index()]
 				return searchCell(cx, a, it)
 			},
-			Style: core.Style{FlexGrow: 1, FlexShrink: 1},
+			Style: core.Style{FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(4, 0)},
 		}
 	})
 }
@@ -127,9 +130,22 @@ func searchGrid(cx *core.Scope, a *App, results *core.Signal[[]api.SearchItem]) 
 // searchCell 单个结果：点击直接进入详情聚合。
 func searchCell(cx *core.Scope, a *App, it api.SearchItem) core.Node {
 	return core.View{
-		StyleFunc: func() core.Style { return core.Style{Gap: 6, Padding: core.Symmetric(0, 6)} },
+		StyleFunc: func() core.Style { return core.Style{Gap: 6} },
 		Children: []core.Node{
-			theme.Poster(a.API.ImageURL(it.Cover), it.Title, 150, 210),
+			core.View{
+				Style:   core.Style{Width: core.Pct(100), AspectRatio: 0.7, CornerRadius: 6, Background: core.RGB(0xD9D9D9), Overflow: core.Hidden},
+				Children: []core.Node{
+					core.Image{
+						Source:     core.Src(a.API.ImageURL(it.Cover)),
+						ResizeMode: core.Cover,
+						Label:      it.Title,
+						Style:      core.Style{Width: core.Pct(100), Height: core.Pct(100)},
+					},
+				},
+				OnPress: func(core.PressEvent) {
+					a.OpenDetail(it.Title, it.Cover, it.URL)
+				},
+			},
 			theme.Title(it.Title, 13, ui.Medium),
 			ui.Text(it.SourceName, 11, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
 		},
