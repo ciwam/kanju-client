@@ -420,7 +420,7 @@ func (c *Client) RegistrationOpen() (bool, error) {
 
 // SiteSource 是一个站源（字段有省略，客户端只用到管理常用项）。
 type SiteSource struct {
-	ID       string `json:"id,omitempty"`
+	ID       int64  `json:"id,omitempty"`
 	Name     string `json:"name"`
 	BaseURL  string `json:"baseUrl"`
 	Enabled  bool   `json:"enabled"`

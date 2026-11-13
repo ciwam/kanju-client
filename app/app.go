@@ -47,11 +47,11 @@ var tabs = []Tab{
 	{ID: "sources", Text: "站源管理", Icon: lucide.Server, Admin: true},
 }
 
-// Setup 在根 scope 上初始化信号与持久化状态。
-func Setup(cx *core.Scope) *App {
+// SetupForTest 构造不读持久化的 App（nsgotest 用）。
+func SetupForTest(cx *core.Scope, base string) *App {
 	a := &App{
-		API:           api.New("http://127.0.0.1:28088"),
-		Server:        core.NewSignal(cx, "http://127.0.0.1:28088"),
+		API:           api.New(base),
+		Server:        core.NewSignal(cx, base),
 		User:          core.NewSignal(cx, (*api.User)(nil)),
 		Tab:           core.NewSignal(cx, "home"),
 		Error:         core.NewSignal(cx, ""),
@@ -63,6 +63,12 @@ func Setup(cx *core.Scope) *App {
 		PlaySource:    core.NewSignal(cx, ""),
 		PlaySourceURL: core.NewSignal(cx, ""),
 	}
+	return a
+}
+
+// Setup 在根 scope 上初始化信号与持久化状态。
+func Setup(cx *core.Scope) *App {
+	a := SetupForTest(cx, "http://127.0.0.1:28088")
 	store := cx.Storage()
 	if server, ok := store.GetItem("server"); ok && server != "" {
 		a.API.Base = server
