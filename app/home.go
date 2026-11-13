@@ -175,16 +175,23 @@ func Home(cx *core.Scope, a *App) core.Node {
 			list, err := client.DoubanList(k, tag, sort, pageLimit, start)
 			cx.Post(func() {
 				pageLoading.Set(false)
-				if reqKey.Get() != key || err != nil || len(list) == 0 {
-					if len(list) < pageLimit {
-						noMore.Set(true)
-					}
+				if reqKey.Get() != key || err != nil {
 					return
 				}
-				merged := append(cur, list...)
+				if len(list) == 0 || len(list) < pageLimit {
+					noMore.Set(true)
+					if len(list) == 0 {
+						return
+					}
+				}
+				// items 可能在请求飞行中被重置（同 key 重进），以当前值拼接而非闭包快照。
+				now := items.Get()
+				if len(now) != start {
+					return // 基线变了，丢弃这页避免错位拼接
+				}
+				merged := append(append([]api.DoubanItem{}, now...), list...)
 				items.Set(merged)
 				a.HomeCache.Put(key, merged)
-				noMore.Set(len(list) < pageLimit)
 			})
 		}()
 	}

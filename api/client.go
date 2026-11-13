@@ -30,20 +30,33 @@ type User struct {
 // Client 是 kanju 后端的 HTTP 客户端。Logf 可注入请求日志钩子
 // （客户端把它接到统一的日志缓冲）。
 type Client struct {
-	Base string // 如 http://127.0.0.1:28088
-
 	mu    sync.RWMutex
+	base  string // 如 http://127.0.0.1:28088
 	token string
 	http  *http.Client
-	Logf  func(format string, args ...any)
+	// Logf 可注入请求日志钩子（客户端把它接到统一的日志缓冲）。
+	// 并发安全由调用方保证。
+	Logf func(format string, args ...any)
 }
 
 func New(base string) *Client {
-	base = strings.TrimRight(base, "/")
-	return &Client{
-		Base: base,
-		http: &http.Client{Timeout: 30 * time.Second},
-	}
+	c := &Client{http: &http.Client{Timeout: 30 * time.Second}}
+	c.SetBase(base)
+	return c
+}
+
+// SetBase 设置后端地址（自动去掉尾部斜杠）。
+func (c *Client) SetBase(base string) {
+	c.mu.Lock()
+	c.base = strings.TrimRight(base, "/")
+	c.mu.Unlock()
+}
+
+// Base 返回当前后端地址。
+func (c *Client) Base() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.base
 }
 
 // logf 打一条请求日志（未设置 Logf 则丢弃）。
@@ -66,9 +79,6 @@ func (c *Client) Token() string {
 	defer c.mu.RUnlock()
 	return c.token
 }
-
-// IsAuthed 返回是否已有 token。
-func (c *Client) IsAuthed() bool { return c.Token() != "" }
 
 // Err 是业务错误：HTTP 非 2xx 或 isSuccess=false。
 type Err struct {
@@ -95,7 +105,7 @@ func (c *Client) newRequest(method, path string, body any) (*http.Request, error
 		}
 		rd = bytes.NewReader(buf)
 	}
-	req, err := http.NewRequest(method, c.Base+path, rd)
+	req, err := http.NewRequest(method, c.Base()+path, rd)
 	if err != nil {
 		return nil, err
 	}
@@ -493,7 +503,7 @@ func (c *Client) ImageURL(raw string) string {
 	if strings.Contains(raw, "/api/proxy/image") {
 		return raw
 	}
-	return c.Base + "/api/proxy/image?url=" + url.QueryEscape(raw)
+	return c.Base() + "/api/proxy/image?url=" + url.QueryEscape(raw)
 }
 
 // MediaPathProxy 把 m3u8 等直链改写成路径式媒体代理，
@@ -507,10 +517,10 @@ func (c *Client) MediaPathProxy(raw string) string {
 	if u.RawQuery != "" {
 		p += "?" + u.RawQuery
 	}
-	return c.Base + p
+	return c.Base() + p
 }
 
 // MediaQueryProxy 直链媒体代理（Range 透传，支持 seek）。
 func (c *Client) MediaQueryProxy(raw string) string {
-	return c.Base + "/api/proxy/media?url=" + url.QueryEscape(raw)
+	return c.Base() + "/api/proxy/media?url=" + url.QueryEscape(raw)
 }

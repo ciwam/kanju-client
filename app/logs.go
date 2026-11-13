@@ -10,16 +10,13 @@ import (
 
 const logCapacity = 500
 
-// LogBuffer 进程内环形日志：最近 logCapacity 行。
-type LogBuffer struct {
-	mu   sync.Mutex
-	pipe *io.PipeWriter
-}
-
 var (
+	logMu        sync.Mutex
 	logLines     []string
 	logListeners []chan struct{}
 )
+
+var embeddedLogPipe *io.PipeWriter
 
 func init() {
 	rd, wr := io.Pipe()
@@ -32,7 +29,7 @@ func init() {
 			if n > 0 {
 				buf = append(buf, tmp[:n]...)
 				for {
-					idx := indexOfByte(buf, '\n')
+					idx := indexByte(buf, '\n')
 					if idx < 0 {
 						break
 					}
@@ -55,9 +52,7 @@ func init() {
 	embeddedLogPipe = wr
 }
 
-var embeddedLogPipe *io.PipeWriter
-
-func indexOfByte(b []byte, c byte) int {
+func indexByte(b []byte, c byte) int {
 	for i := range b {
 		if b[i] == c {
 			return i
@@ -66,14 +61,18 @@ func indexOfByte(b []byte, c byte) int {
 	return -1
 }
 
-// pushLog 追加一行并通知监听者。
+// pushLog 追加一行并通知监听者。任意 goroutine 可调。
 func pushLog(line string) {
 	stamp := time.Now().Format("15:04:05")
+	logMu.Lock()
 	logLines = append(logLines, stamp+"  "+line)
 	if len(logLines) > logCapacity {
 		logLines = logLines[len(logLines)-logCapacity:]
 	}
-	for _, ch := range logListeners {
+	listeners := make([]chan struct{}, len(logListeners))
+	copy(listeners, logListeners)
+	logMu.Unlock()
+	for _, ch := range listeners {
 		select {
 		case ch <- struct{}{}:
 		default:
@@ -81,7 +80,7 @@ func pushLog(line string) {
 	}
 }
 
-// ClientLog 客户端自己打日志（对外别名）。
+// ClientLog 客户端自己打日志。
 func ClientLog(format string, args ...any) {
 	pushLog(fmt.Sprintf(format, args...))
 }
@@ -89,8 +88,10 @@ func ClientLog(format string, args ...any) {
 // BackendLogWriter 传给内嵌后端 ServeOptions.LogOutput。
 func BackendLogWriter() io.Writer { return embeddedLogPipe }
 
-// Logs 返回当前全部日志行。
+// Logs 返回当前全部日志行的快照。
 func Logs() []string {
+	logMu.Lock()
+	defer logMu.Unlock()
 	out := make([]string, len(logLines))
 	copy(out, logLines)
 	return out
@@ -98,18 +99,24 @@ func Logs() []string {
 
 // ClearLogs 清空。
 func ClearLogs() {
+	logMu.Lock()
 	logLines = nil
+	logMu.Unlock()
 }
 
 // WatchLogs 订阅新日志通知；返回取消函数。
 func WatchLogs(ch chan struct{}) func() {
+	logMu.Lock()
 	logListeners = append(logListeners, ch)
+	logMu.Unlock()
 	return func() {
+		logMu.Lock()
 		for i, c := range logListeners {
 			if c == ch {
 				logListeners = append(logListeners[:i], logListeners[i+1:]...)
 				break
 			}
 		}
+		logMu.Unlock()
 	}
 }

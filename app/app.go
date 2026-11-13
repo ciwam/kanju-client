@@ -21,7 +21,6 @@ type App struct {
 	Server *core.Signal[string]
 	User   *core.Signal[*api.User]
 	Tab    *core.Signal[string]
-	Error  *core.Signal[string]
 	// Embedded 标记当前连接的是进程内嵌后端（免登录）。
 	Embedded *core.Signal[bool]
 
@@ -147,7 +146,6 @@ func SetupForTest(cx *core.Scope, base string) *App {
 		Server:           core.NewSignal(cx, base),
 		User:             core.NewSignal(cx, (*api.User)(nil)),
 		Tab:              core.NewSignal(cx, "home"),
-		Error:            core.NewSignal(cx, ""),
 		Embedded:         core.NewSignal(cx, false),
 		DetailTitle:      core.NewSignal(cx, ""),
 		DetailCover:      core.NewSignal(cx, ""),
@@ -181,14 +179,17 @@ func Setup(cx *core.Scope) *App {
 	}
 
 	a := SetupForTest(cx, defaultBase)
+	// 全部 API 请求打进统一日志（排查用）。
+	a.API.Logf = ClientLog
+	startLogPump(cx)
 	a.Embedded.Set(embedded)
 	store := cx.Storage()
 	if server, ok := store.GetItem("server"); ok && server != "" {
-		a.API.Base = server
+		a.API.SetBase(server)
 		a.Server.Set(server)
 	}
 	// 内嵌后端免登录：直接以虚拟 admin 进入主界面。
-	if embedded && a.API.Base == defaultBase {
+	if embedded && a.API.Base() == defaultBase {
 		a.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
 		return a
 	}
@@ -229,7 +230,7 @@ func (a *App) Logout(cx *core.Scope) {
 // SetServer 切换后端地址并重置登录态。切回内嵌地址时免登录。
 func (a *App) SetServer(cx *core.Scope, base string) {
 	ClientLog("[nav] 切换服务器 -> %s", base)
-	a.API.Base = base
+	a.API.SetBase(base)
 	a.Server.Set(base)
 	cx.Storage().SetItem("server", base)
 	a.Logout(cx)

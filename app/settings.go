@@ -63,18 +63,29 @@ func Settings(cx *core.Scope, a *App) core.Node {
 	}
 }
 
-// LogCard 运行日志卡片：客户端事件 + 内嵌后端日志合并展示。
-func LogCard(cx *core.Scope) core.View {
-	// 日志版本号：每次有新行 +1，驱动重渲染；页面重新挂载时重建。
-	version := core.NewSignal(cx, 0)
+// logVersion 全局日志版本号：新日志 +1，Setup 里启动唯一的监听 goroutine。
+var logVersion *core.Signal[int]
+
+// startLogPump 把日志通知泵到 logVersion（进程内只跑一次）。
+func startLogPump(cx *core.Scope) {
+	logVersion = core.NewSignal(cx, 0)
 	tick := make(chan struct{}, 1)
 	stop := WatchLogs(tick)
 	cx.Cleanup(func() { stop() })
 	go func() {
 		for range tick {
-			cx.Post(func() { version.Update(func(n int) int { return n + 1 }) })
+			cx.Post(func() { logVersion.Update(func(n int) int { return n + 1 }) })
 		}
 	}()
+}
+
+// LogCard 运行日志卡片：客户端事件 + 内嵌后端日志合并展示。
+func LogCard(cx *core.Scope) core.View {
+	version := logVersion
+	if version == nil {
+		// SetupForTest 路径没启动日志泵；给个空信号避免崩。
+		version = core.NewSignal(cx, 0)
+	}
 
 	clear := func() { ClearLogs(); version.Update(func(n int) int { return n + 1 }) }
 	copyAll := func() { cx.SetClipboard(strings.Join(Logs(), "\n")) }
@@ -95,7 +106,7 @@ func LogCard(cx *core.Scope) core.View {
 	)
 }
 
-// logView 等宽字体的日志文本区。
+// logView 等宽字体的日志文本区。Row 里不重复取快照，直接按行读。
 func logView(cx *core.Scope, version *core.Signal[int]) core.Node {
 	return core.List{
 		Count: func() int {
@@ -109,8 +120,9 @@ func logView(cx *core.Scope, version *core.Signal[int]) core.Node {
 			if row.Index() >= len(lines) {
 				return core.View{}
 			}
+			line := lines[row.Index()]
 			return core.Text{
-				Content: lines[row.Index()],
+				Content: line,
 				Style: core.Style{
 					FontSize: 11, FontFamily: core.FontMonospace,
 					Color: cx.Palette().TextMuted,

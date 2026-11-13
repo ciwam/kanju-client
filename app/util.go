@@ -1,9 +1,9 @@
 package app
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"kanju/client/api"
 )
@@ -12,18 +12,9 @@ func trimSpace(s string) string { return strings.TrimSpace(s) }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
-// fmtPos 把秒数格式化为 mm:ss 或 h:mm:ss。
+// fmtPos 把秒数格式化为 mm:ss 或 h:mm:ss（fmtDuration 的秒数版本）。
 func fmtPos(seconds int64) string {
-	if seconds <= 0 {
-		return "0:00"
-	}
-	h := seconds / 3600
-	m := (seconds % 3600) / 60
-	s := seconds % 60
-	if h > 0 {
-		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
-	}
-	return fmt.Sprintf("%d:%02d", m, s)
+	return fmtDuration(time.Duration(seconds) * time.Second)
 }
 
 func contains(s, sub string) bool { return strings.Contains(s, sub) }

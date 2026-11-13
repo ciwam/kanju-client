@@ -26,7 +26,10 @@ type playerState struct {
 	attempts   *core.Signal[int] // 同一集的重试次数，用于自动重试
 	resumed    *core.Signal[bool]
 	barVisible *core.Signal[bool] // 控制栏自动隐藏
-	ref        *core.Ref
+	hideGen    *core.Signal[int]  // 隐藏定时代次，新显示使旧定时失效
+	// lastSavedSec 上次写进度的秒数（OnProgress 一秒多次，去重用）。
+	lastSavedSec int64
+	ref          *core.Ref
 }
 
 func newPlayerState(cx *core.Scope) *playerState {
@@ -40,8 +43,8 @@ func newPlayerState(cx *core.Scope) *playerState {
 		buffering:  core.NewSignal(cx, false),
 		playErr:    core.NewSignal(cx, ""),
 		attempts:   core.NewSignal(cx, 0),
-		resumed:    core.NewSignal(cx, false),
 		barVisible: core.NewSignal(cx, true),
+		hideGen:    core.NewSignal(cx, 0),
 		ref:        &core.Ref{},
 	}
 }
@@ -64,7 +67,6 @@ func Player(cx *core.Scope, a *App) core.Node {
 			st.position.Set(0)
 			st.duration.Set(0)
 			st.attempts.Set(0)
-			st.resumed.Set(false)
 			st.paused.Set(false)
 			// 续播：查历史里同一片源同一集的位置。
 			client := a.API
@@ -102,7 +104,9 @@ func Player(cx *core.Scope, a *App) core.Node {
 		}
 		core.Untracked(cx, func() bool {
 			secs := int64(pos.Seconds())
-			if secs > 0 && secs%10 == 0 {
+			// 同一秒的多次 OnProgress 只写一次（OnProgress 约 250ms 一次）。
+			if secs > 0 && secs%10 == 0 && secs != st.lastSavedSec {
+				st.lastSavedSec = secs
 				a.saveProgress(src, secs, int64(st.duration.Get().Seconds()))
 			}
 			return true
@@ -140,11 +144,11 @@ func Player(cx *core.Scope, a *App) core.Node {
 		}
 		st.ref.Seek(next)
 		st.position.Set(next)
-		st.barVisible.Set(true)
+		st.showBar(cx)
 	}
 
 	// 键盘快捷键：空格暂停、←/→ ±10s、↑/↓ 音量、F 全屏。
-	cx.OnKey("space", func() { st.paused.Update(func(v bool) bool { return !v }); st.barVisible.Set(true) })
+	cx.OnKey("space", func() { st.paused.Update(func(v bool) bool { return !v }); st.showBar(cx) })
 	cx.OnKey("left", func() { seek(-10 * time.Second) })
 	cx.OnKey("right", func() { seek(10 * time.Second) })
 	cx.OnKey("up", func() {
@@ -156,7 +160,7 @@ func Player(cx *core.Scope, a *App) core.Node {
 			st.muted.Set(false)
 			return v
 		})
-		st.barVisible.Set(true)
+		st.showBar(cx)
 	})
 	cx.OnKey("down", func() {
 		st.volume.Update(func(v float64) float64 {
@@ -166,7 +170,7 @@ func Player(cx *core.Scope, a *App) core.Node {
 			}
 			return v
 		})
-		st.barVisible.Set(true)
+		st.showBar(cx)
 	})
 	cx.OnKey("f", func() { desktop.ToggleFullScreen(cx) })
 
@@ -198,7 +202,7 @@ func Player(cx *core.Scope, a *App) core.Node {
 				TestID:     "video",
 				StyleFunc:  nil,
 				OnPress: func(ev core.PressEvent) {
-					st.barVisible.Set(true)
+					st.showBar(cx)
 					if ev.Clicks >= 2 {
 						desktop.ToggleFullScreen(cx)
 						return
@@ -268,24 +272,6 @@ func overlayBox(cx *core.Scope, color core.Color, text string) core.View {
 // controlBar 底部悬浮控制栏：播放/暂停、±10s、进度条、时间、倍速、音量、全屏。
 // 无操作 3 秒自动隐藏，鼠标在播放器区域内移动/按压即恢复。
 func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
-	hideTimer := core.NewSignal(cx, 0) // 变化驱动隐藏定时
-	// 控制栏可见或播放状态变化时重置 3 秒隐藏定时。
-	resetHide := func() {
-		st.barVisible.Set(true)
-		n := hideTimer.Get()
-		hideTimer.Set(n + 1)
-		go func() {
-			n := hideTimer.GetUntracked()
-			time.Sleep(3 * time.Second)
-			cx.Post(func() {
-				if hideTimer.Get() == n && !st.paused.Get() {
-					st.barVisible.Set(false)
-				}
-			})
-		}()
-	}
-	_ = resetHide
-
 	return core.Dynamic(func(*core.Scope) core.Node {
 		visible := st.barVisible.Get()
 		p := cx.Palette()
@@ -296,7 +282,7 @@ func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
 					Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0),
 					Height: core.Pt(36),
 				},
-				OnMouseEnter: func(core.MouseEvent) { st.barVisible.Set(true) },
+				OnMouseEnter: func(core.MouseEvent) { st.showBar(cx) },
 			}
 		}
 		bar := core.View{
@@ -380,7 +366,7 @@ func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
 					OnPress:  func(core.PressEvent) { desktop.ToggleFullScreen(cx) },
 				},
 			},
-			OnMouseEnter: func(core.MouseEvent) { st.barVisible.Set(true) },
+			OnMouseEnter: func(core.MouseEvent) { st.showBar(cx) },
 		}
 		return bar
 	})
@@ -404,6 +390,22 @@ func fmtRate(r float32) string {
 		s := itoa(int64(r * 100))
 		return s[:len(s)-2] + "." + s[len(s)-2:] + "x"
 	}
+}
+
+// showBar 显示控制栏并安排 3 秒后自动隐藏（暂停时不隐藏）。
+// hideGen 递增使旧的定时 goroutine 失效。
+func (st *playerState) showBar(cx *core.Scope) {
+	st.showBar(cx)
+	st.hideGen.Set(st.hideGen.Get() + 1)
+	gen := st.hideGen.Get()
+	go func() {
+		time.Sleep(3 * time.Second)
+		cx.Post(func() {
+			if st.hideGen.Get() == gen && !st.paused.Get() {
+				st.barVisible.Set(false)
+			}
+		})
+	}()
 }
 
 func playIcon(st *playerState) func() *core.SVG {

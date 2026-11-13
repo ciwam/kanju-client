@@ -9,7 +9,6 @@ import (
 var (
 	TypeHeading = core.Style{FontSize: 17, FontWeight: core.FontWeightSemibold}
 	TypeBody    = core.Style{FontSize: 14}
-	TypeCaption = core.Style{FontSize: 12}
 )
 
 // Row 横向布局。
@@ -36,11 +35,6 @@ func Card(cx *core.Scope, children ...core.Node) core.View {
 		},
 		Children: children,
 	}
-}
-
-// Muted 次要文字颜色。
-func Muted(cx *core.Scope) core.Color {
-	return cx.Palette().TextMuted
 }
 
 // Fill 填满容器。
@@ -77,19 +71,6 @@ func Empty(cx *core.Scope, text string) core.View {
 // Title 无色覆盖的标题/正文文字（继承父视图颜色）。
 func Title(content string, size core.Points, weight core.FontWeight) core.Text {
 	return core.Text{Content: content, Style: core.Style{FontSize: size, FontWeight: weight}}
-}
-
-// Page 页面根容器：填满 + 统一内边距。
-func Page(cx *core.Scope) core.Style {
-	return Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 12, Overflow: core.Hidden})
-}
-
-// HoverFill 给视图加 hover 背景反馈。返回的 StyleFunc 由调用方 Merge。
-func HoverFill(cx *core.Scope) func() core.Style {
-	return func() core.Style {
-		p := cx.Palette()
-		return core.Style{Hover: &core.Style{Background: p.SurfaceHover, CornerRadius: 8}}
-	}
 }
 
 // SkeletonBox 加载骨架：灰底圆角块。
@@ -131,13 +112,13 @@ func ErrorRetry(cx *core.Scope, msg string, retry func()) core.View {
 		Children: []core.Node{
 			core.Text{Content: msg, Style: core.Style{FontSize: 13, Color: cx.Palette().Danger, FlexShrink: 1}},
 			core.View{Style: core.Style{FlexGrow: 1}},
-			RetryButton(cx, retry),
+			retryButton(cx, retry),
 		},
 	}
 }
 
-// RetryButton 重试按钮（带图标）。
-func RetryButton(cx *core.Scope, retry func()) core.View {
+// retryButton 重试按钮（ErrorRetry 内部用）。
+func retryButton(cx *core.Scope, retry func()) core.View {
 	return core.View{
 		StyleFunc: func() core.Style {
 			p := cx.Palette()
