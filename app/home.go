@@ -84,6 +84,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 	const pageLimit = 30
 	pageLoading := core.NewSignal(cx, false)
 	noMore := core.NewSignal(cx, false)
+	sectionTitle := core.NewSignal(cx, "热门")
 
 	// 请求竞态防护：每次请求带分类 key，响应回来 key 不一致就丢弃。
 	reqKey := core.NewSignal(cx, "")
@@ -195,12 +196,32 @@ func Home(cx *core.Scope, a *App) core.Node {
 		core.Untracked(cx, func() bool { load(); return true })
 	})
 
+	// 当前分类标签：让数据来源一目了然（豆瓣各分类内容天然重叠，
+	// 显示当前 tag 避免误以为切换没生效）。
+	cx.Effect(func() {
+		kind.Get()
+		sub.Get()
+		child.Get()
+		core.Untracked(cx, func() bool {
+			_, tag, _ := currentTagOf(kind, sub, child)
+			sectionTitle.Set(tag)
+			return true
+		})
+	})
+
 	return core.View{
 		StyleFunc: func() core.Style {
 			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 12, Overflow: core.Hidden})
 		},
 		Children: []core.Node{
 			kindSwitcher(cx, kind, sub, child, groups),
+			core.Dynamic(func(*core.Scope) core.Node {
+				t := sectionTitle.Get()
+				if t == "" {
+					return core.View{}
+				}
+				return theme.Title(t, 15, ui.Semibold)
+			}),
 			core.Dynamic(func(*core.Scope) core.Node {
 				switch {
 				case loading.Get() && len(items.Get()) == 0:
