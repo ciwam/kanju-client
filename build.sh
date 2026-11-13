@@ -56,6 +56,10 @@ if ! go tool nsgo build -h >/dev/null 2>&1; then
     exit 1
 fi
 
+echo "==> 清理构建缓存（go 编译/测试缓存 + dist 旧产物）"
+go clean -cache -testcache
+rm -rf dist/*
+
 if $run_tests; then
     echo "==> go vet"
     go vet ./...
