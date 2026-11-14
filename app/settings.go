@@ -34,24 +34,13 @@ func Settings(cx *core.Scope, a *App) core.Node {
 		},
 		Children: []core.Node{
 			theme.Title("设置", 20, ui.Semibold),
-			theme.Card(cx,
-				theme.Title("服务器", 14, ui.Semibold),
-				core.View{
-					StyleFunc: func() core.Style { return core.Style{Direction: core.Row, Gap: 8} },
-					Children: []core.Node{
-						ui.Input{Value: draft.Get, OnChange: draft.Set, Placeholder: "http://…", TestID: "server",
-							Style: core.Style{FlexGrow: 1}},
-						ui.Button{Text: "保存", Variant: ui.ButtonPrimary, OnPress: save},
-					},
-				},
-				core.Dynamic(func(*core.Scope) core.Node {
-					m := msg.Get()
-					if m == "" {
-						return core.View{}
-					}
-					return ui.Text(m, 12, ui.Regular, func() core.Color { return cx.Palette().Danger })
-				}),
-			),
+			// 服务器卡片：内嵌模式下没有意义（地址是自动分配的本地端口），隐藏。
+			core.Dynamic(func(*core.Scope) core.Node {
+				if a.Embedded.Get() {
+					return core.View{}
+				}
+				return serverCard(cx, a, draft, msg, save)
+			}),
 			core.Dynamic(func(*core.Scope) core.Node {
 				// 内嵌模式无账号概念，隐藏账号卡片。
 				if a.Embedded.Get() {
@@ -76,6 +65,28 @@ func Settings(cx *core.Scope, a *App) core.Node {
 			LogCard(cx),
 		},
 	}
+}
+
+// serverCard 外部服务器地址卡片（内嵌模式不显示）。
+func serverCard(cx *core.Scope, a *App, draft *core.Signal[string], msg *core.Signal[string], save func()) core.View {
+	return theme.Card(cx,
+		theme.Title("服务器", 14, ui.Semibold),
+		core.View{
+			StyleFunc: func() core.Style { return core.Style{Direction: core.Row, Gap: 8} },
+			Children: []core.Node{
+				ui.Input{Value: draft.Get, OnChange: draft.Set, Placeholder: "http://…", TestID: "server",
+					Style: core.Style{FlexGrow: 1}},
+				ui.Button{Text: "保存", Variant: ui.ButtonPrimary, OnPress: save},
+			},
+		},
+		core.Dynamic(func(*core.Scope) core.Node {
+			m := msg.Get()
+			if m == "" {
+				return core.View{}
+			}
+			return ui.Text(m, 12, ui.Regular, func() core.Color { return cx.Palette().Danger })
+		}),
+	)
 }
 
 // dataSourceCard 影片数据源卡片：豆瓣优先 / TMDB 优先。
