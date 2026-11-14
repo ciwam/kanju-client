@@ -27,6 +27,8 @@ type App struct {
 
 	// HomeCache 首页分类数据缓存（跨页签保留）。
 	HomeCache homeCache
+	// TestSetHomeItems 测试挂钩：Home 挂载时注册直接驱动网格数据的函数。
+	TestSetHomeItems func([]api.DoubanItem)
 
 	// 打开详情页时携带的上下文。
 	DetailTitle *core.Signal[string]

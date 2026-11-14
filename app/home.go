@@ -77,6 +77,8 @@ func Home(cx *core.Scope, a *App) core.Node {
 	sub := core.NewSignal(cx, 0)
 	child := core.NewSignal(cx, 0)
 	items := core.NewSignalFunc(cx, []api.DoubanItem(nil), func(a, b []api.DoubanItem) bool { return false })
+	// 测试挂钩：外部直接驱动网格数据。
+	a.TestSetHomeItems = items.Set
 	loading := core.NewSignal(cx, false)
 	errMsg := core.NewSignal(cx, "")
 
@@ -85,6 +87,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 	pageLoading := core.NewSignal(cx, false)
 	noMore := core.NewSignal(cx, false)
 	sectionTitle := core.NewSignal(cx, "热门")
+	catKey := core.NewSignal(cx, "")
 
 	// 请求竞态防护：每次请求带分类 key，响应回来 key 不一致就丢弃。
 	reqKey := core.NewSignal(cx, "")
@@ -125,6 +128,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 		}
 		ClientLog("[home] 切换分类 %s", key)
 		reqKey.Set(key)
+		catKey.Set(key) // 触发网格重建（nsgo List splice 丢变更的绕过）
 		tag, sort := currentTag()
 		applyCache()
 		if len(items.Get()) > 0 {
@@ -253,7 +257,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 					return core.View{}
 				}
 			}),
-			posterGrid(cx, a, items, loadMore, pageLoading, noMore),
+			posterGrid(cx, a, items, loadMore, pageLoading, noMore, catKey),
 		},
 	}
 }
@@ -382,14 +386,24 @@ func chipButton(cx *core.Scope, label string, active bool, press func()) core.No
 	})
 }
 
-// posterGrid 封面网格（虚拟化列表，按宽度自适应列数）。
-// 注意不要在外层 core.Dynamic 里读 items——追加分页会整树重建 List
-// 导致滚动位置归零；List 的 Count/Row 本身就响应数据变化。
-func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], loadMore func(), pageLoading, noMore *core.Signal[bool]) core.Node {
+// posterGrid 封面网格。分两类更新走不同路径：
+//   - 分页追加：List 常驻，Count/Key/Row 响应式（滚动位置保留）
+//   - 切换分类：分类 key 变化时 Dynamic 重建整个 List（nsgo List 的
+//     splice 在大批量替换时丢变更/不更新行——20261114 快照实锤，
+//     等上游修复后可回收此绕过）
+func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], loadMore func(), pageLoading, noMore *core.Signal[bool], catKey *core.Signal[string]) core.Node {
 	// 列宽估算：窗口内容区约 700-1100pt，4 列。行高 = 列宽/0.7（海报）+ 文字两行 + 间距。
 	const columns = 4
 	const gap = core.Points(14)
 	estimated := core.Points(160/0.7) + 44
+	return core.Dynamic(func(*core.Scope) core.Node {
+		key := catKey.Get() // track：切分类时重建 List
+		ClientLog("[home] posterGrid 装配 key=%s items=%d 条", key, len(items.Get()))
+		return buildPosterGrid(cx, a, items, loadMore, pageLoading, noMore, columns, gap, estimated)
+	})
+}
+
+func buildPosterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], loadMore func(), pageLoading, noMore *core.Signal[bool], columns int, gap, estimated core.Points) core.List {
 	return core.List{
 		Count:         func() int { return len(items.Get()) },
 		Key:           func(i int) any { return items.Get()[i].URL },
