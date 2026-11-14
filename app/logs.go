@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -96,7 +97,15 @@ func indexByte(b []byte, c byte) int {
 }
 
 // pushLog 追加一行并通知监听者。任意 goroutine 可调。
+// 带 panic 兜底：任何调用方 goroutine 的 panic 都会记录到日志文件后
+// 再抛出，保证闪退现场必留痕。
 func pushLog(line string) {
+	defer func() {
+		if r := recover(); r != nil {
+			writeFileLine(fmt.Sprintf("PANIC in pushLog: %v\n%s", r, currentStack()))
+			panic(r)
+		}
+	}()
 	stamp := time.Now().Format("15:04:05")
 	full := stamp + "  " + line
 	logMu.Lock()
@@ -116,6 +125,22 @@ func pushLog(line string) {
 		default:
 		}
 	}
+}
+
+// writeFileLine 直接写一行进日志文件（绕过缓冲，供 panic 兜底用）。
+func writeFileLine(s string) {
+	logMu.Lock()
+	if logFile != nil {
+		logFile.WriteString(s + "\n")
+	}
+	logMu.Unlock()
+}
+
+// currentStack 当前 goroutine 堆栈。
+func currentStack() string {
+	buf := make([]byte, 8192)
+	n := runtime.Stack(buf, false)
+	return string(buf[:n])
 }
 
 // ClientLog 客户端自己打日志。
