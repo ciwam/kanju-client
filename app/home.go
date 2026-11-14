@@ -527,8 +527,6 @@ func chipButton(cx *core.Scope, label string, active bool, press func()) core.No
 //     splice 在大批量替换时丢变更/不更新行——20261114 快照实锤，
 //     等上游修复后可回收此绕过）
 func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], loadMore func(), pageLoading, noMore *core.Signal[bool], catKey *core.Signal[string]) core.Node {
-	// 列宽估算：窗口内容区约 700-1100pt，4 列。行高 = 列宽/0.7（海报）+ 文字两行 + 间距。
-	const columns = 4
 	const gap = core.Points(14)
 	estimated := core.Points(160/0.7) + 44
 	gridRef := &core.Ref{}
@@ -543,13 +541,16 @@ func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], lo
 			})
 		}()
 	}
-	return core.Dynamic(func(*core.Scope) core.Node {
-		_ = catKey.Get() // track：切分类时重建 List
-		// 注意：这里严禁 track items（Get 会被 Dynamic 依赖）——否则分页
-		// items.Set 会重建 List 回顶。
-		_ = items
-		return buildPosterGrid(cx, a, items, loadMore, pageLoading, noMore, columns, gap, estimated, gridRef)
-	})
+	// 列数随窗口宽度自适应（OnLayout 测量 → 列数变化重建 List，
+	// NumColumns 挂载时固化的框架限制，与 catKey 同一重建模式）。
+	cols, measure := theme.Measure(cx)
+	return measure(core.Dynamic(func(*core.Scope) core.Node {
+		_ = catKey.Get()   // track：切分类时重建 List
+		n := cols()        // track：窗口宽度跨档时重建 List
+		_ = items          // 注意：严禁 track items——分页 Set 会重建 List 回顶
+		ClientLog("[home] posterGrid 列数 %d", n)
+		return buildPosterGrid(cx, a, items, loadMore, pageLoading, noMore, n, gap, estimated, gridRef)
+	}))
 }
 
 func buildPosterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], loadMore func(), pageLoading, noMore *core.Signal[bool], columns int, gap, estimated core.Points, gridRef *core.Ref) core.List {

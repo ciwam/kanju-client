@@ -106,37 +106,42 @@ func searchPanel(cx *core.Scope, a *App) core.Node {
 	}
 }
 
-// searchGrid 搜索结果网格。列表常驻，结果更新时保持滚动位置。
+// searchGrid 搜索结果网格。列表常驻，结果更新时保持滚动位置；
+// 列数随窗口宽度自适应（跨档重建 List，同 posterGrid）。
 func searchGrid(cx *core.Scope, a *App, results *core.Signal[[]api.DoubanItem], searched *core.Signal[bool]) core.Node {
 	const gap = core.Points(14)
-	return core.List{
-		Count:         func() int { return len(results.Get()) },
-		Key:           func(i int) any { return results.Get()[i].URL },
-		NumColumns:    4,
-		EstimatedSize: core.Points(160/0.7) + 44,
-		Viewport:      core.ListViewportOwn,
-		Gap:           gap + 8,
-		ColumnGap:     gap,
-		Empty: core.Dynamic(func(*core.Scope) core.Node {
-			if searched.Get() {
-				return theme.Empty(cx, "未找到相关影片，试试其它关键词")
-			}
-			return theme.Empty(cx, "输入关键词开始搜索")
-		}),
-		Row: func(cx *core.Scope, row core.ListRow) core.Node {
-			it := func() api.DoubanItem {
-				list := results.Get()
-				if i := row.Index(); i < len(list) {
-					return list[i]
+	cols, measure := theme.Measure(cx)
+	return measure(core.Dynamic(func(*core.Scope) core.Node {
+		n := cols()
+		return core.List{
+			Count:         func() int { return len(results.Get()) },
+			Key:           func(i int) any { return results.Get()[i].URL },
+			NumColumns:    n,
+			EstimatedSize: core.Points(160/0.7) + 44,
+			Viewport:      core.ListViewportOwn,
+			Gap:           gap + 8,
+			ColumnGap:     gap,
+			Empty: core.Dynamic(func(*core.Scope) core.Node {
+				if searched.Get() {
+					return theme.Empty(cx, "未找到相关影片，试试其它关键词")
 				}
-				return api.DoubanItem{}
-			}
-			return core.Dynamic(func(*core.Scope) core.Node {
-				return searchCell(cx, a, it())
-			})
-		},
-		Style: core.Style{FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(4, 0)},
-	}
+				return theme.Empty(cx, "输入关键词开始搜索")
+			}),
+			Row: func(cx *core.Scope, row core.ListRow) core.Node {
+				it := func() api.DoubanItem {
+					list := results.Get()
+					if i := row.Index(); i < len(list) {
+						return list[i]
+					}
+					return api.DoubanItem{}
+				}
+				return core.Dynamic(func(*core.Scope) core.Node {
+					return searchCell(cx, a, it())
+				})
+			},
+			Style: core.Style{FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(4, 0)},
+		}
+	}))
 }
 
 // searchCell 单个结果：点击进豆瓣详情（id 可用时）或原 URL。
