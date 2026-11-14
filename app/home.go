@@ -569,7 +569,7 @@ func posterCell(cx *core.Scope, a *App, it api.DoubanItem) core.Node {
 				Style: posterCardStyle,
 				Children: []core.Node{
 					core.Image{
-						Source:       core.Src(a.API.ImageURL(it.Cover)),
+						Source:       core.Src(a.API.ImageURL(it.Cover, title)),
 						ResizeMode:   core.Cover,
 						Label:        title,
 						FadeDuration: time.Millisecond,

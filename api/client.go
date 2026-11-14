@@ -599,15 +599,20 @@ func (c *Client) ToggleSource(baseURL string) error {
 
 // ---- URL 工具 ----
 
-// ImageURL 把任意封面 URL 包装成图片代理地址。
-func (c *Client) ImageURL(raw string) string {
+// ImageURL 把任意封面 URL 包装成图片代理地址。title 可选：豆瓣图床
+// 全部失败时，代理层按片名到 TMDB 检索替代海报（第二地址降级）。
+func (c *Client) ImageURL(raw string, title ...string) string {
 	if raw == "" {
 		return ""
 	}
 	if strings.Contains(raw, "/api/proxy/image") {
 		return raw
 	}
-	return c.Base() + "/api/proxy/image?url=" + url.QueryEscape(raw)
+	u := "/api/proxy/image?url=" + url.QueryEscape(raw)
+	if len(title) > 0 && title[0] != "" {
+		u += "&t=" + url.QueryEscape(title[0])
+	}
+	return c.Base() + u
 }
 
 // MediaPathProxy 把 m3u8 等直链改写成路径式媒体代理，
