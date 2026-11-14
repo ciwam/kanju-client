@@ -64,6 +64,36 @@ type tabOpt struct {
 	Tag   string
 }
 
+// currentCategoryLabel 返回当前选中分类的中文名（chips 上的 Label）。
+func currentCategoryLabel(kind *core.Signal[string], sub, child *core.Signal[int], tmdb bool) string {
+	k := kind.Get()
+	var gs []tabGroup
+	if tmdb {
+		if k == "tv" {
+			gs = tmdbTVTabs
+		} else {
+			gs = tmdbMovieTabs
+		}
+	} else if k == "tv" {
+		gs = tvTabs
+	} else {
+		gs = movieTabs
+	}
+	si := sub.Get()
+	if si < 0 || si >= len(gs) {
+		return "热门"
+	}
+	g := gs[si]
+	if len(g.Children) == 0 {
+		return g.Label
+	}
+	ci := child.Get()
+	if ci < 0 || ci >= len(g.Children) {
+		ci = 0
+	}
+	return g.Children[ci].Label
+}
+
 // currentTagOf 从首页分类信号算出当前请求参数。tmdb=true 时用 TMDB 分类体系。
 func currentTagOf(kind *core.Signal[string], sub, child *core.Signal[int], tmdb bool) (k, tag, sort string) {
 	k = kind.Get()
@@ -273,14 +303,13 @@ func Home(cx *core.Scope, a *App) core.Node {
 	})
 
 	// 当前分类标签：让数据来源一目了然（豆瓣各分类内容天然重叠，
-	// 显示当前 tag 避免误以为切换没生效）。
+	// 显示当前分类的中文名避免误以为切换没生效）。
 	cx.Effect(func() {
 		kind.Get()
 		sub.Get()
 		child.Get()
 		core.Untracked(cx, func() bool {
-			_, tag, _ := currentTagOf(kind, sub, child, a.PreferSourceSignal.Get() == "tmdb")
-			sectionTitle.Set(tag)
+			sectionTitle.Set(currentCategoryLabel(kind, sub, child, a.PreferSourceSignal.Get() == "tmdb"))
 			return true
 		})
 	})
