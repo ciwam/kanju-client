@@ -1,8 +1,11 @@
 package app
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"kanju/client/theme"
 
@@ -96,9 +99,14 @@ func LogCard(cx *core.Scope) core.View {
 			return
 		}
 		ClientLog("[logs] 打开日志目录 %s", dir)
-		// nsgo 的 OpenURL 拒绝 file:// 协议（refusedSchemes），
-		// 在 Finder 里打开目录用平台的 open 命令。
-		if err := exec.Command("open", dir).Start(); err != nil {
+		// nsgo 的 OpenURL 拒绝 file:// 协议（refusedSchemes），用 open 命令。
+		// -R 揭示当天的日志文件：窗口不存在则开新窗，已存在则聚焦并选中，
+		// 比裸 open 目录稳定（目录窗口在其它空间时裸 open 只闪一下）。
+		target := filepath.Join(dir, time.Now().Format("2006-01-02")+".log")
+		if _, err := os.Stat(target); err != nil {
+			target = dir // 当天文件还没生成时退回打开目录
+		}
+		if err := exec.Command("open", "-R", target).Start(); err != nil {
 			ClientLog("[logs] 打开目录失败: %v", err)
 		}
 	}
