@@ -159,6 +159,52 @@ github.com/nsgo-dev/nsgo/internal/platform/apple.animate border.go:167
 
 ---
 
+## 7. dispose 链路 unlink 索引越界 panic（偶发，测试阻塞）
+
+**现象**：headless 测试偶发（估 10-30% 概率，多次连跑可复现）：
+
+```
+panic: runtime error: index out of range [2] with length 0
+
+core.(*subscribers).remove(...)            core/reactive.go:683/789
+core.(*computation).unlink(...)            core/reactive.go:520/576
+core.(*Scope).disposeDetached(...)         core/reactive.go:262
+core.(*Scope).disposeOwned(...)            core/reactive.go:243
+core.(*Scope).Dispose(...)                 core/reactive.go:212
+core.(*Tree).mountDynamic.func1()          core/tree.go:1841
+core.(*computation).run.func1()
+...runtime.flush / Tree.Dispatch
+```
+
+随后整个测试进程退出（runtime.fail），该用例 FAIL，后面用例仍跑。
+应用层栈帧零参与——纯框架 dispose 路径。
+
+**机制推测**（reactive.go）：`computation.unlink` 遍历自己的
+`sources`，对每个 source 调 `readers().remove(s.at)`——`at` 是该
+reader 在 source 订阅者列表里的槽位。`remove(i)` 把末位读者挪到
+槽位 i 并更新它的 `sources[moved.at].at`。当**同一个 computation
+的同一 source 出现在它 sources 列表里两次**（track 去重失效，或
+unlink 在遍历中 readers 列表被同一批 dispose 的其它 computation
+并发修改——dispose 是顺序的但共享 readers 槽位）时，先 remove
+把末位挪进 i，第二次 remove 用过期的 `s.at` 越界或错删。
+`index out of range with length 0` 表明该 source 的 readers 列表
+已空，即 `s.at` 完全过期。
+
+**触发场景**（我们的仓库）：首页挂载后立即按压（TestHomeViewPanels）
+或快速页签切换（TestBackNavigation）——Dynamic 子树替换 dispose
+旧 scope 时，其 owned computations 的 sources 指向正在被同一批次
+dispose 的其它 scope 的信号。
+
+**建议排查方向**：unlink 用 `s.at` 前先校验
+`readers.list[s.at].c == c`（槽位被挪动后 at 过期），不符则线性
+查找；或 readers 改为按 computation 的 map/Set。
+
+**我们的绕过**：无（应用层无法干预 dispose 内部）。测试脚本层
+重跑即过；正式构建用 `--no-test` 或重跑。已实测最新 main
+（4a37cb4418e5）同样存在。
+
+---
+
 ## 附：非缺陷但相关的框架限制
 
 - `List.NumColumns` / `EstimatedSize` 挂载时固化，不支持响应式
