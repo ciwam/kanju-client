@@ -30,10 +30,6 @@ func InitialCols(n int) {
 	}
 }
 
-// CurrentCols 返回最近一次按真实宽度算出的列数（App 层持久化用；
-// 未测量过返回 0）。
-func CurrentCols() int { return lastCols }
-
 // columnsForWidth 按内容区宽度挑列数：以海报列宽 ~170-210pt 为准，
 // 窄窗口少列（最小 2 列保可用），宽窗口多列。
 func columnsForWidth(w core.Points) int {
@@ -65,9 +61,15 @@ type widthSignal = core.Signal[core.Points]
 
 // Measure 生成一个测量容器与它的宽度信号。把返回的 wrap 包住网格：
 // 网格实际宽度（随窗口缩放、侧栏、边距变化）驱动 cols()。
+//
+// cols 是 Memo：拉伸窗口时宽度每帧都变，但列数绝大多数帧不变——
+// Memo 值不变不通知读者，网格的 Dynamic 不会重跑，List 不重建。
+// 之前直接在 Dynamic 里读宽度，每帧重跑重建整个 List，所有海报
+// 清屏重载，表现为拉伸时图片集体闪动。
 func Measure(cx *core.Scope) (cols func() int, wrap func(child core.Node) core.Node) {
 	width := core.NewSignal(cx, core.Points(0))
-	cols = func() int { return columnsForWidth(width.Get()) }
+	memo := core.NewMemo(cx, func() int { return columnsForWidth(width.Get()) })
+	cols = memo.Get
 	wrap = func(child core.Node) core.Node {
 		return core.View{
 			Style:    core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pct(100)},

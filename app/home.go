@@ -536,20 +536,16 @@ func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], lo
 	gridRef := &core.Ref{}
 	// 列数随窗口宽度自适应（OnLayout 测量 → 列数变化重建 List，
 	// NumColumns 挂载时固化的框架限制，与 catKey 同一重建模式）。
+	// cols 是 Memo：拉伸中列数不变的帧不通知，Dynamic 不重跑。
 	cols, measure := theme.Measure(cx)
 	// 测到真实宽度后把列数持久化：下次启动首帧直接用（消除闪变）。
-	// 只在真实测量（宽度>0）时写，首帧 w=0 的初值不回写。
-	var persisted int
 	return measure(core.Dynamic(func(*core.Scope) core.Node {
 		_ = catKey.Get() // track：切分类时重建 List
-		n := cols()      // track：窗口宽度跨档时重建 List
+		n := cols()      // track：列数跨档时重建 List（宽度微变不触发）
 		_ = items        // 注意：严禁 track items——分页 Set 会重建 List 回顶
-		if n != persisted && theme.CurrentCols() == n {
-			persisted = n
-			if prev, ok := cx.Storage().GetItem("poster_cols"); !ok || prev != strconv.Itoa(n) {
-				cx.Storage().SetItem("poster_cols", strconv.Itoa(n))
-				ClientLog("[data] 海报列数 %d 已持久化", n)
-			}
+		if prev, ok := cx.Storage().GetItem("poster_cols"); !ok || prev != strconv.Itoa(n) {
+			cx.Storage().SetItem("poster_cols", strconv.Itoa(n))
+			ClientLog("[data] 海报列数 %d 已持久化", n)
 		}
 		// 行高估算按当前列数：海报宽 ≈ (1000-14×(n-1))/n，高 = 宽/0.7，
 		// 加标题区 44 与行距 gap+8。估得越准，pin/窗口估算的累计偏差越小。
