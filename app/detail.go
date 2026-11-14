@@ -248,26 +248,38 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 	}
 }
 
-// playFallback 换源重试：在其它线路里找同名选集依次尝试解析。
+// playFallback 换源重试：在其它线路里找可播的同集依次尝试解析。
 // 线路整体失效（如量子资源播放域名全部 404）时，同集在其它站源
 // 线路仍可播。全部失败返回最后一个错误。
+//
+// 匹配两级：
+//  1. 同名选集——各站源集数命名一致时（第07集 → 第07集）；
+//  2. 单选集线路——命名粒度不同（正片/HD/全集，通常整部一条流），
+//     点哪集都是同一条源，选集数==1 的线路直接试。
+//     区间型（第01-03集）不参与：无法确定目标集在其中，播放错集。
 func playFallback(cx *core.Scope, a *App, client *api.Client, ep api.Episode, failed api.Channel) (api.PlayResult, error) {
+	return playFallbackWith(cx, a, client.Play, ep, failed)
+}
+
+// playFallbackWith 是 playFallback 的可测形态：play 函数注入。
+func playFallbackWith(cx *core.Scope, a *App, play func(string) (api.PlayResult, error), ep api.Episode, failed api.Channel) (api.PlayResult, error) {
 	data := a.DetailData.Get()
 	if data == nil {
 		return api.PlayResult{}, fmt.Errorf("获取播放地址失败")
 	}
 	var lastErr error = fmt.Errorf("获取播放地址失败")
-	for _, ch := range mergeChannels(data.Channels) {
+	merged := mergeChannels(data.Channels)
+	for _, ch := range merged {
 		if ch.Name == failed.Name && ch.SourceName == failed.SourceName {
 			continue
 		}
 		for _, cand := range ch.Episodes {
-			if cand.Title != ep.Title {
-				continue
+			if cand.Title != ep.Title && len(ch.Episodes) != 1 {
+				continue // 非同名且非单选集线路：不猜
 			}
-			ClientLog("[detail] 换源重试 %q line=%q url=%s", ep.Title, ch.Name, cand.URL)
+			ClientLog("[detail] 换源重试 %q line=%q(%s) url=%s", ep.Title, ch.Name, ch.SourceName, cand.URL)
 			a.DetailPlayBusy.Set("当前线路不可用，尝试 " + ch.Name + "…")
-			r, err := client.Play(cand.URL)
+			r, err := play(cand.URL)
 			if err == nil {
 				ClientLog("[detail] 换源成功 line=%q", ch.Name)
 				return r, nil
@@ -465,4 +477,9 @@ func mergeChannels(channels []api.Channel) []api.Channel {
 		}
 	}
 	return out
+}
+
+// PlayFallbackForTest 供外部测试驱动换源逻辑（play 函数注入）。
+func PlayFallbackForTest(state *App, ep api.Episode, failed api.Channel, play func(string) (api.PlayResult, error)) (api.PlayResult, error) {
+	return playFallbackWith(nil, state, play, ep, failed)
 }

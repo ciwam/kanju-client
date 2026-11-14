@@ -2,6 +2,7 @@ package main
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 
 	"kanju/client/api"
@@ -211,5 +212,55 @@ func TestBackNavigation(t *testing.T) {
 	a.Settle()
 	if len(a.Query("text:运行日志")) != 0 {
 		t.Fatal("返回首页后设置页内容仍在")
+	}
+}
+
+
+// TestPlayFallbackSingleEpisode 线路集数命名粒度不同时的换源：量子
+// 资源「第07集」失效后，单选集线路（正片/HD/全集）应被尝试——此前
+// 只匹配同名选集，粒度不同的线路全被跳过，换源形同虚设。
+func TestPlayFallbackSingleEpisode(t *testing.T) {
+	var state *app.App
+	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		state = app.SetupForTest(cx, "http://127.0.0.1:1")
+		state.Embedded.Set(true)
+		state.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
+		// 模拟聚合结果：量子线路 13 集（全挂），金鹰一条单选集线路。
+		state.DetailData.Set(&api.DetailResp{
+			Channels: []api.Channel{
+				{Name: "liangzi", SourceName: "量子资源", Episodes: []api.Episode{
+					{Title: "第07集", URL: "https://dead.example/share/x"},
+				}},
+				{Name: "jinyingyun", SourceName: "金鹰资源网", Episodes: []api.Episode{
+					{Title: "正片", URL: "https://ok.example/play/1"},
+				}},
+			},
+		})
+		return app.Root(cx, state)
+	}, nsgotest.Size(1000, 700))
+	a.Settle()
+	if state == nil {
+		t.Fatal("未取到 App")
+	}
+	ep := api.Episode{Title: "第07集", URL: "https://dead.example/share/x"}
+	failed := api.Channel{Name: "liangzi", SourceName: "量子资源"}
+
+	var tried []string
+	_, err := app.PlayFallbackForTest(state, ep, failed, func(url string) (api.PlayResult, error) {
+		tried = append(tried, url)
+		if strings.Contains(url, "ok.example") {
+			return api.PlayResult{URL: url, Type: "m3u8"}, nil
+		}
+		return api.PlayResult{}, &api.Err{Status: 404, Msg: "HTTP 404"}
+	})
+	if err != nil {
+		t.Fatalf("换源应成功（金鹰正片可达）: %v", err)
+	}
+	if len(tried) == 0 || !strings.Contains(tried[len(tried)-1], "ok.example") {
+		t.Fatalf("应尝试单选集线路的 URL，实际尝试: %v", tried)
+	}
+	logs := strings.Join(app.Logs(), "\n")
+	if !strings.Contains(logs, "换源成功") {
+		t.Fatalf("日志应记录换源成功。日志:\n%s", logs)
 	}
 }
