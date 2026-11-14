@@ -54,7 +54,7 @@ func tmdbPosterByTitle(title string) (string, bool) {
 			t = strings.ToLower(v.Name)
 		}
 		if t == want || strings.HasPrefix(t, want) || strings.HasPrefix(want, t) {
-			return "https://image.tmdb.org/t/p/w300" + v.PosterPath, true
+			return "https://image.tmdb.org/t/p/w500" + v.PosterPath, true
 		}
 	}
 	return "", false

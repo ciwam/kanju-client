@@ -247,8 +247,23 @@ func imageFailPut(rawURL string) {
 	imageFailCache[rawURL] = time.Now()
 }
 
+// upgradeDoubanPoster 把豆瓣封面小图（s_ratio_poster ≈110px 宽）升级为
+// 大图（l_ratio_poster ≈440px）：客户端海报单元格在宽窗口下宽达 200+pt
+// （retina 2x 即 400px+），小图放大既糊，nsgo 的 Image 还会在窗口拉伸、
+// 需要更高分辨率时清屏重解码（Start 先清空再异步加载）——表现为拉伸时
+// 海报闪动。换大图后解码尺寸余量充足，拉伸不再触发重解码。
+func upgradeDoubanPoster(rawURL string) string {
+	if !strings.Contains(rawURL, "doubanio.com") && !strings.Contains(rawURL, "douban.com") {
+		return rawURL
+	}
+	if i := strings.Index(rawURL, "/s_ratio_poster/"); i >= 0 {
+		return rawURL[:i] + "/l_ratio_poster/" + rawURL[i+len("/s_ratio_poster/"):]
+	}
+	return rawURL
+}
+
 func (s *Server) handleProxyImage(w http.ResponseWriter, r *http.Request) {
-	rawURL := r.URL.Query().Get("url")
+	rawURL := upgradeDoubanPoster(r.URL.Query().Get("url"))
 	if !isURLSafeForFetch(rawURL) {
 		logWarn("[proxy-image] 非法图片地址，已拒发 403: url=%s", rawURL)
 		http.Error(w, "forbidden", 403)

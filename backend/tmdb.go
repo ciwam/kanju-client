@@ -190,7 +190,7 @@ func tmdbDiscoverPage(path string, q url.Values, page int, dType string) ([]map[
 		}
 		list = append(list, map[string]any{
 			"title": title,
-			"cover": "https://image.tmdb.org/t/p/w300" + v.PosterPath,
+			"cover": "https://image.tmdb.org/t/p/w500" + v.PosterPath,
 			"url":   fmt.Sprintf("https://www.themoviedb.org/%s/%d", mediaType, v.ID),
 			"rate":  strconv.FormatFloat(v.VoteAverage, 'f', 1, 64),
 		})
@@ -282,7 +282,7 @@ func tmdbTrendingPage(path string, page int, dType string) ([]map[string]any, bo
 		}
 		list = append(list, map[string]any{
 			"title": title,
-			"cover": "https://image.tmdb.org/t/p/w300" + v.PosterPath,
+			"cover": "https://image.tmdb.org/t/p/w500" + v.PosterPath,
 			"url":   fmt.Sprintf("https://www.themoviedb.org/%s/%d", mediaType, v.ID),
 			"rate":  rate,
 		})
