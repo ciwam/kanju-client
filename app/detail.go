@@ -157,6 +157,18 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 12, Overflow: core.Hidden})
 		},
 		Children: []core.Node{core.Dynamic(func(*core.Scope) core.Node {
+			// 渲染快照：每次 Dynamic 重跑记录当前状态与数据量。
+			dNow := a.DetailData.Get()
+			chCount, epCount := 0, 0
+			if dNow != nil {
+				chCount = len(dNow.Channels)
+				for _, c := range dNow.Channels {
+					epCount += len(c.Episodes)
+				}
+			}
+			ClientLog("[detail] render url=%q subject=%v detail=%v(线路%d/选集%d) loading=%v playBusy=%q err=%q",
+				a.DetailURL.Get(), a.DetailSubject.Get() != nil, dNow != nil,
+				chCount, epCount, a.DetailLoading.Get(), a.DetailPlayBusy.Get(), a.DetailErr.Get())
 			if u := a.DetailURL.Get(); u == "" {
 				return theme.Empty(cx, "从首页或搜索选择一部影片")
 			}

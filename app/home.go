@@ -127,8 +127,10 @@ func Home(cx *core.Scope, a *App) core.Node {
 		tag, sort := currentTag()
 		applyCache()
 		if len(items.Get()) > 0 {
-			return // 缓存命中，不闪白
+			ClientLog("[home] 缓存命中 %s (%d 条)", key, len(items.Get()))
+			return
 		}
+		ClientLog("[home] 请求发出 %s", key)
 		loading.Set(true)
 		errMsg.Set("")
 		client := a.API
@@ -138,12 +140,15 @@ func Home(cx *core.Scope, a *App) core.Node {
 			cx.Post(func() {
 				loading.Set(false)
 				if reqKey.Get() != key {
-					return // 过期响应丢弃
+					ClientLog("[home] 响应过期丢弃 %s", key)
+					return
 				}
 				if err != nil {
+					ClientLog("[home] 请求失败 %s: %v", key, err)
 					errMsg.Set(err.Error())
 					items.Set(nil)
 				} else {
+					ClientLog("[home] 请求完成 %s: %d 条", key, len(list))
 					items.Set(list)
 					a.HomeCache.Put(key, list)
 					noMore.Set(len(list) < pageLimit)

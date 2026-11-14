@@ -32,8 +32,11 @@ func Shell(cx *core.Scope, a *App) core.Node {
 		}
 
 		return ui.SidebarShell{
-			TestID:        "shell",
-			Sidebar:       []core.Node{ui.Sidebar{Sections: sections, Selected: a.Tab.Get, OnSelect: a.Tab.Set}},
+			TestID: "shell",
+			Sidebar: []core.Node{ui.Sidebar{Sections: sections, Selected: a.Tab.Get, OnSelect: func(id string) {
+				ClientLog("[nav] 点击页签 %s", id)
+				a.Tab.Set(id)
+			}}},
 			SidebarFooter: footer,
 			Header: []core.Node{core.Dynamic(func(*core.Scope) core.Node {
 				return theme.Title(tabTitle(a.Tab.Get()), 15, ui.Semibold)
@@ -61,8 +64,9 @@ func tabTitle(id string) string {
 	return "Kanju"
 }
 
-// page 按页签分发页面视图。
+// page 按页签分发页面视图，并记录页签挂载。
 func page(cx *core.Scope, a *App, id string) core.Node {
+	ClientLog("[nav] 页面挂载 %s", id)
 	switch id {
 	case "home":
 		return Home(cx, a)
