@@ -65,6 +65,14 @@ func Settings(cx *core.Scope, a *App) core.Node {
 			}),
 			// 影片数据源选择（TMDB 优先需后端已配置 key）。
 			dataSourceCard(cx, a),
+			// 站源管理（仅管理员）。
+			core.Dynamic(func(*core.Scope) core.Node {
+				u := a.User.Get()
+				if u == nil || u.Role != "admin" {
+					return core.View{}
+				}
+				return SourcesCard(cx, a)
+			}),
 			LogCard(cx),
 		},
 	}

@@ -8,8 +8,9 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Sources 站源管理（管理员）：列表 + 启停 + 删除 + 新增。
-func Sources(cx *core.Scope, a *App) core.Node {
+// SourcesCard 站源管理卡片（管理员）：列表 + 启停 + 删除 + 新增。
+// 挂在设置页，不再是独立页签。
+func SourcesCard(cx *core.Scope, a *App) core.Node {
 	items := core.NewSignalFunc(cx, []api.SiteSource(nil), func(a, b []api.SiteSource) bool { return false })
 	loading := core.NewSignal(cx, false)
 	errMsg := core.NewSignal(cx, "")
@@ -85,57 +86,57 @@ func Sources(cx *core.Scope, a *App) core.Node {
 		}()
 	}
 
-	return core.View{
-		StyleFunc: func() core.Style {
-			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 12, Overflow: core.Hidden})
-		},
-		Children: []core.Node{
-			theme.Card(cx,
-				theme.Title("添加站源", 14, ui.Semibold),
+	return theme.Card(cx,
+		core.View{
+			StyleFunc: func() core.Style { return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8} },
+			Children: []core.Node{
+				theme.Title("站源管理", 14, ui.Semibold),
 				core.View{
-					StyleFunc: func() core.Style { return core.Style{Direction: core.Row, Gap: 8} },
+					StyleFunc: func() core.Style {
+						return core.Style{FlexGrow: 1, FlexShrink: 1, Direction: core.Row, Gap: 8}
+					},
 					Children: []core.Node{
-						ui.Input{Value: newName.Get, OnChange: newName.Set, Placeholder: "名称", Style: core.Style{Width: core.Pt(160)}},
+						ui.Input{Value: newName.Get, OnChange: newName.Set, Placeholder: "名称", Style: core.Style{Width: core.Pt(120)}},
 						ui.Input{Value: newBase.Get, OnChange: newBase.Set, Placeholder: "https://…", Style: core.Style{FlexGrow: 1}},
-						ui.Button{Text: "添加", Variant: ui.ButtonPrimary, OnPress: add},
+						ui.Button{Text: "添加", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, OnPress: add},
 					},
 				},
-			),
-			core.Dynamic(func(*core.Scope) core.Node {
-				switch {
-				case loading.Get():
-					return theme.Row(8, ui.Spinner{}, ui.Text("加载中…", 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }))
-				case errMsg.Get() != "":
-					return ui.Text(errMsg.Get(), 13, ui.Regular, func() core.Color { return cx.Palette().Danger })
-				default:
-					return core.View{}
-				}
-			}),
-			core.Dynamic(func(*core.Scope) core.Node {
-				list := items.Get()
-				if len(list) == 0 {
-					return theme.Empty(cx, "还没有站源")
-				}
-				return core.List{
-					Count:         func() int { return len(list) },
-					Key:           func(i int) any { return list[i].BaseURL },
-					EstimatedSize: 52,
-					Viewport:      core.ListViewportOwn,
-					Row: func(cx *core.Scope, r core.ListRow) core.Node {
-						// Dynamic 包裹：cell 复用时跟随 index 信号重渲染。
-						return core.Dynamic(func(*core.Scope) core.Node {
-							list := items.Get()
-							if r.Index() >= len(list) {
-								return core.View{}
-							}
-							return sourceRow(cx, list[r.Index()], toggle, del)
-						})
-					},
-					Style: core.Style{FlexGrow: 1, FlexShrink: 1},
-				}
-			}),
+			},
 		},
-	}
+		core.Dynamic(func(*core.Scope) core.Node {
+			switch {
+			case loading.Get():
+				return theme.Row(8, ui.Spinner{}, ui.Text("加载中…", 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }))
+			case errMsg.Get() != "":
+				return ui.Text(errMsg.Get(), 13, ui.Regular, func() core.Color { return cx.Palette().Danger })
+			default:
+				return core.View{}
+			}
+		}),
+		core.Dynamic(func(*core.Scope) core.Node {
+			list := items.Get()
+			if len(list) == 0 {
+				return theme.Empty(cx, "还没有站源")
+			}
+			return core.List{
+				Count:         func() int { return len(list) },
+				Key:           func(i int) any { return list[i].BaseURL },
+				EstimatedSize: 52,
+				Viewport:      core.ListViewportOwn,
+				Row: func(cx *core.Scope, r core.ListRow) core.Node {
+					// Dynamic 包裹：cell 复用时跟随 index 信号重渲染。
+					return core.Dynamic(func(*core.Scope) core.Node {
+						list := items.Get()
+						if r.Index() >= len(list) {
+							return core.View{}
+						}
+						return sourceRow(cx, list[r.Index()], toggle, del)
+					})
+				},
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1, Height: core.Pt(180)},
+			}
+		}),
+	)
 }
 
 func sourceRow(cx *core.Scope, s api.SiteSource, toggle, del func(api.SiteSource)) core.View {

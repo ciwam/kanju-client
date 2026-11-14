@@ -84,8 +84,6 @@ func page(cx *core.Scope, a *App, id string) core.Node {
 		return Live(cx, a)
 	case "settings":
 		return Settings(cx, a)
-	case "sources":
-		return Sources(cx, a)
 	default:
 		return Home(cx, a)
 	}

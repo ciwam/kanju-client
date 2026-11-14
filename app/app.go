@@ -112,7 +112,6 @@ var tabs = []Tab{
 	{ID: "history", Text: "历史", Icon: lucide.Clock},
 	{ID: "favorites", Text: "收藏", Icon: lucide.Star},
 	{ID: "settings", Text: "设置", Icon: lucide.Settings},
-	{ID: "sources", Text: "站源管理", Icon: lucide.Server, Admin: true},
 }
 
 // 嵌入后端的生命周期：整个进程一份，退出时随进程结束。
