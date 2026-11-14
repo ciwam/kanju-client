@@ -91,13 +91,19 @@ func Live(cx *core.Scope, a *App) core.Node {
 					return theme.Empty(cx, "没有直播频道")
 				}
 				return core.List{
-					Count:         func() int { return len(list) },
-					Key:           func(i int) any { return list[i].ID },
+					Count:         func() int { return len(items.Get()) },
+					Key:           func(i int) any { return items.Get()[i].ID },
 					EstimatedSize: 44,
 					Viewport:      core.ListViewportOwn,
 					Row: func(cx *core.Scope, r core.ListRow) core.Node {
-						ch := list[r.Index()]
-						return liveRow(cx, a, ch)
+						// Dynamic 包裹：cell 复用时跟随 index 信号重渲染。
+						return core.Dynamic(func(*core.Scope) core.Node {
+							list := items.Get()
+							if r.Index() >= len(list) {
+								return core.View{}
+							}
+							return liveRow(cx, a, list[r.Index()])
+						})
 					},
 					Style: core.Style{FlexGrow: 1, FlexShrink: 1},
 				}

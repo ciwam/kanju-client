@@ -400,12 +400,19 @@ func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], lo
 		ColumnGap:     gap,
 		OnLoadMore:    loadMore,
 		Row: func(cx *core.Scope, row core.ListRow) core.Node {
-			list := items.Get()
-			if row.Index() < len(list) {
-				ClientLog("[home] row %d 渲染 %q", row.Index(), list[row.Index()].Title)
+			// 官方模式：Row 返回的子树必须响应式——cell 会被跨数据复用
+			// （bind 只更新 pos.index 信号），静态取值会让复用行永远显示
+			// 旧内容（切分类不切换的根因）。
+			it := func() api.DoubanItem {
+				list := items.Get()
+				if i := row.Index(); i < len(list) {
+					return list[i]
+				}
+				return api.DoubanItem{}
 			}
-			it := list[row.Index()]
-			return posterCell(cx, a, it)
+			return core.Dynamic(func(*core.Scope) core.Node {
+				return posterCell(cx, a, it())
+			})
 		},
 		Footer: core.Dynamic(func(*core.Scope) core.Node {
 			p := cx.Palette()

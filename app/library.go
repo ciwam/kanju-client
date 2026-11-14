@@ -155,8 +155,12 @@ func listPage(cx *core.Scope, a *App,
 					Key:           key,
 					EstimatedSize: 76,
 					Viewport:      core.ListViewportOwn,
+					// Row 内容响应式包一层 Dynamic：cell 跨数据复用时
+					// 依赖 pos.index 变化重渲染（同 home/search）。
 					Row: func(cx *core.Scope, r core.ListRow) core.Node {
-						return row(cx, r.Index())
+						return core.Dynamic(func(*core.Scope) core.Node {
+							return row(cx, r.Index())
+						})
 					},
 					Style: core.Style{FlexGrow: 1, FlexShrink: 1},
 				}

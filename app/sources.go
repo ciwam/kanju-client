@@ -122,8 +122,14 @@ func Sources(cx *core.Scope, a *App) core.Node {
 					EstimatedSize: 52,
 					Viewport:      core.ListViewportOwn,
 					Row: func(cx *core.Scope, r core.ListRow) core.Node {
-						s := list[r.Index()]
-						return sourceRow(cx, s, toggle, del)
+						// Dynamic 包裹：cell 复用时跟随 index 信号重渲染。
+						return core.Dynamic(func(*core.Scope) core.Node {
+							list := items.Get()
+							if r.Index() >= len(list) {
+								return core.View{}
+							}
+							return sourceRow(cx, list[r.Index()], toggle, del)
+						})
 					},
 					Style: core.Style{FlexGrow: 1, FlexShrink: 1},
 				}

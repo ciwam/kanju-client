@@ -114,8 +114,16 @@ func searchGrid(cx *core.Scope, a *App, results *core.Signal[[]api.DoubanItem], 
 			return theme.Empty(cx, "输入关键词开始搜索")
 		}),
 		Row: func(cx *core.Scope, row core.ListRow) core.Node {
-			it := results.Get()[row.Index()]
-			return searchCell(cx, a, it)
+			it := func() api.DoubanItem {
+				list := results.Get()
+				if i := row.Index(); i < len(list) {
+					return list[i]
+				}
+				return api.DoubanItem{}
+			}
+			return core.Dynamic(func(*core.Scope) core.Node {
+				return searchCell(cx, a, it())
+			})
 		},
 		Style: core.Style{FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(4, 0)},
 	}
