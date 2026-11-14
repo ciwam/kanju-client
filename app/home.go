@@ -39,16 +39,42 @@ type tabGroup struct {
 	Children []tabOpt
 }
 
+// tmdbTVTabs / tmdbMovieTabs：TMDB 优先时的分类体系（genre id 编码为 g{id}）。
+var tmdbTVTabs = []tabGroup{
+	{Label: "热门剧集", Tag: "tvtrend"},
+	{Label: "动画", Tag: "g16"},
+	{Label: "喜剧", Tag: "g35"},
+	{Label: "犯罪", Tag: "g80"},
+	{Label: "纪录片", Tag: "g99"},
+	{Label: "科幻奇幻", Tag: "g10765"},
+	{Label: "剧情", Tag: "g18"},
+}
+
+var tmdbMovieTabs = []tabGroup{
+	{Label: "热门电影", Tag: "movietrend"},
+	{Label: "动作", Tag: "g28"},
+	{Label: "喜剧", Tag: "g35"},
+	{Label: "科幻", Tag: "g878"},
+	{Label: "惊悚", Tag: "g53"},
+	{Label: "动画", Tag: "g16"},
+}
+
 type tabOpt struct {
 	Label string
 	Tag   string
 }
 
-// currentTagOf 从首页分类信号算出当前请求参数。
-func currentTagOf(kind *core.Signal[string], sub, child *core.Signal[int]) (k, tag, sort string) {
+// currentTagOf 从首页分类信号算出当前请求参数。tmdb=true 时用 TMDB 分类体系。
+func currentTagOf(kind *core.Signal[string], sub, child *core.Signal[int], tmdb bool) (k, tag, sort string) {
 	k = kind.Get()
 	var gs []tabGroup
-	if k == "tv" {
+	if tmdb {
+		if k == "tv" {
+			gs = tmdbTVTabs
+		} else {
+			gs = tmdbMovieTabs
+		}
+	} else if k == "tv" {
 		gs = tvTabs
 	} else {
 		gs = movieTabs
@@ -92,7 +118,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 	// 请求竞态防护：每次请求带分类 key，响应回来 key 不一致就丢弃。
 	reqKey := core.NewSignal(cx, "")
 	categoryKey := func() string {
-		k, tag, sort := currentTagOf(kind, sub, child)
+		k, tag, sort := currentTagOf(kind, sub, child, a.PreferSourceSignal.Get() == "tmdb")
 		return k + "|" + tag + "|" + sort
 	}
 
@@ -108,7 +134,14 @@ func Home(cx *core.Scope, a *App) core.Node {
 		}
 	}
 
+	tmdbMode := func() bool { return a.PreferSourceSignal.Get() == "tmdb" }
 	groups := func() []tabGroup {
+		if tmdbMode() {
+			if kind.Get() == "tv" {
+				return tmdbTVTabs
+			}
+			return tmdbMovieTabs
+		}
 		if kind.Get() == "tv" {
 			return tvTabs
 		}
@@ -116,7 +149,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 	}
 
 	currentTag := func() (tag, sort string) {
-		_, t, s := currentTagOf(kind, sub, child)
+		_, t, s := currentTagOf(kind, sub, child, a.PreferSourceSignal.Get() == "tmdb")
 		return t, s
 	}
 
@@ -246,7 +279,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 		sub.Get()
 		child.Get()
 		core.Untracked(cx, func() bool {
-			_, tag, _ := currentTagOf(kind, sub, child)
+			_, tag, _ := currentTagOf(kind, sub, child, a.PreferSourceSignal.Get() == "tmdb")
 			sectionTitle.Set(tag)
 			return true
 		})
@@ -257,7 +290,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 12, Overflow: core.Hidden})
 		},
 		Children: []core.Node{
-			kindSwitcher(cx, kind, sub, child, groups),
+			kindSwitcher(cx, a, kind, sub, child, groups),
 			core.Dynamic(func(*core.Scope) core.Node {
 				t := sectionTitle.Get()
 				if t == "" {
@@ -288,7 +321,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 
 // kindSwitcher 顶部：电影/剧集分段 + 分类 chips（base.Tabs 官方控件，
 // 带键盘导航、hover 反馈与按下缩放）。
-func kindSwitcher(cx *core.Scope, kind *core.Signal[string], sub, child *core.Signal[int], groups func() []tabGroup) core.Node {
+func kindSwitcher(cx *core.Scope, a *App, kind *core.Signal[string], sub, child *core.Signal[int], groups func() []tabGroup) core.Node {
 	return core.Dynamic(func(*core.Scope) core.Node {
 		gs := groups()
 		si := sub.Get()
