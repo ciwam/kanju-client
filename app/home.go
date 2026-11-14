@@ -138,26 +138,44 @@ func Home(cx *core.Scope, a *App) core.Node {
 		ClientLog("[home] 请求发出 %s (垫底 %d 条)", key, len(items.Get()))
 		client := a.API
 		k := kind.Get()
-		go func() {
+		var attempt func(try int)
+		attempt = func(try int) {
 			list, err := client.DoubanList(k, tag, sort, pageLimit, 0)
 			cx.Post(func() {
-				loading.Set(false)
 				if reqKey.Get() != key {
 					ClientLog("[home] 响应过期丢弃 %s", key)
 					return
 				}
 				if err != nil {
+					// 自动重试一次（豆瓣偶发超时），仍失败才报错。
+					if try == 0 {
+						ClientLog("[home] 请求失败，3 秒后自动重试 %s: %v", key, err)
+						go func() {
+							time.Sleep(3 * time.Second)
+							cx.Post(func() {
+								if reqKey.Get() == key && !loading.Get() {
+									attempt(1)
+								}
+							})
+						}()
+						return
+					}
 					ClientLog("[home] 请求失败 %s: %v", key, err)
+					loading.Set(false)
 					errMsg.Set(err.Error())
-					items.Set(nil)
-				} else {
-					ClientLog("[home] 请求完成 %s: %d 条", key, len(list))
-					items.Set(list)
-					a.HomeCache.Put(key, list)
-					noMore.Set(len(list) < pageLimit)
+					if len(items.Get()) == 0 {
+						items.Set(nil) // 无旧内容可显示时才清空进错误页
+					}
+					return
 				}
+				loading.Set(false)
+				ClientLog("[home] 请求完成 %s: %d 条", key, len(list))
+				items.Set(list)
+				a.HomeCache.Put(key, list)
+				noMore.Set(len(list) < pageLimit)
 			})
-		}()
+		}
+		go attempt(0)
 	}
 
 	// 分页加载：滚近列表尾部时由 List 的 OnLoadMore 触发。
