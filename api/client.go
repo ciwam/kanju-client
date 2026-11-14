@@ -310,7 +310,10 @@ type DoubanItem struct {
 	SourceName   string `json:"sourceName,omitempty"`
 }
 
-func (c *Client) DoubanList(kind, tag, sort string, limit, start int) ([]DoubanItem, error) {
+// DoubanListWithSource 同 DoubanList，并返回响应的 source 标记
+// （tmdb=TMDB 数据源；空=豆瓣/rexxar 正常通道）。prefer 传 "tmdb"
+// 表示用户设置了 TMDB 优先（后端需已配置 key）。
+func (c *Client) DoubanListWithSource(kind, tag, sort string, limit, start int, prefer string) ([]DoubanItem, string, error) {
 	q := url.Values{}
 	q.Set("type", kind)
 	q.Set("tag", tag)
@@ -319,8 +322,68 @@ func (c *Client) DoubanList(kind, tag, sort string, limit, start int) ([]DoubanI
 	}
 	q.Set("limit", fmt.Sprint(limit))
 	q.Set("start", fmt.Sprint(start))
+	if prefer != "" {
+		q.Set("prefer", prefer)
+	}
+	req, err := c.newRequest(http.MethodGet, "/api/douban?"+q.Encode(), nil)
+	if err != nil {
+		return nil, "", err
+	}
+	start0 := time.Now()
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return nil, "", err
+	}
+	elapsed := time.Since(start0).Milliseconds()
+	if resp.StatusCode == http.StatusUnauthorized {
+		c.logf("GET /api/douban -> 401 未登录(%dms)", elapsed)
+		c.fireUnauthorized()
+		return nil, "", &Err{Status: resp.StatusCode, Msg: "未登录或登录已过期"}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		c.logf("GET /api/douban -> HTTP %d(%dms)", resp.StatusCode, elapsed)
+		return nil, "", &Err{Status: resp.StatusCode, Msg: firstString(raw, resp.Status)}
+	}
+	// 响应可能是信封包 data 或扁平（data 与 source 并列），两种都兼容。
+	var env struct {
+		IsSuccess bool            `json:"isSuccess"`
+		ErrorMsg  string          `json:"errorMsg"`
+		Data      json.RawMessage `json:"data"`
+		Source    string          `json:"source"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		c.logf("GET /api/douban -> 解析失败(%dms)", elapsed)
+		return nil, "", &Err{Status: resp.StatusCode, Msg: "响应解析失败"}
+	}
+	if !env.IsSuccess {
+		c.logf("GET /api/douban -> 业务失败(%dms): %s", elapsed, env.ErrorMsg)
+		return nil, env.Source, &Err{Status: resp.StatusCode, Msg: env.ErrorMsg}
+	}
+	dataSrc := env.Data
+	if len(env.Data) == 0 {
+		// 扁平形态：data 字段不存在，源数据混在顶层；剔除 source 后整体取 data。
+		var flat map[string]json.RawMessage
+		if json.Unmarshal(raw, &flat) == nil {
+			dataSrc = flat["data"]
+		}
+	}
 	var items []DoubanItem
-	err := c.doJSON(http.MethodGet, "/api/douban?"+q.Encode(), nil, &items)
+	if err := json.Unmarshal(dataSrc, &items); err != nil {
+		c.logf("GET /api/douban -> %d 数据解析失败(%dms)", resp.StatusCode, elapsed)
+		return nil, env.Source, &Err{Status: resp.StatusCode, Msg: "数据解析失败"}
+	}
+	c.logf("GET /api/douban -> 200 OK(%dms) %d 条 source=%q", elapsed, len(items), env.Source)
+	return items, env.Source, nil
+}
+
+// DoubanList 兼容旧签名（不关心数据源的调用方）。
+func (c *Client) DoubanList(kind, tag, sort string, limit, start int) ([]DoubanItem, error) {
+	items, _, err := c.DoubanListWithSource(kind, tag, sort, limit, start, "")
 	return items, err
 }
 

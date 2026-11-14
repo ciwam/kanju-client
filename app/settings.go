@@ -63,9 +63,60 @@ func Settings(cx *core.Scope, a *App) core.Node {
 					ui.Button{Text: "退出登录", Variant: ui.ButtonSecondary, OnPress: func() { a.Logout(cx) }},
 				)
 			}),
+			// 影片数据源选择（TMDB 优先需后端已配置 key）。
+			dataSourceCard(cx, a),
 			LogCard(cx),
 		},
 	}
+}
+
+// dataSourceCard 影片数据源卡片：豆瓣优先 / TMDB 优先。
+func dataSourceCard(cx *core.Scope, a *App) core.View {
+	return theme.Card(cx,
+		theme.Title("影片数据源", 14, ui.Semibold),
+		core.Dynamic(func(*core.Scope) core.Node {
+			p := cx.Palette()
+			isTMDB := a.PreferSourceSignal.Get() == "tmdb"
+			// 两个选项按钮：选中态 accent 底。
+			makeOpt := func(label, val string, active bool) core.Node {
+				st := core.Style{
+					Padding: core.Symmetric(5, 14), CornerRadius: 7, FontSize: 13,
+					BorderWidth: 1, BorderStyle: core.BorderSolid,
+					Hover: &core.Style{Background: p.SurfaceHover},
+				}
+				if active {
+					st.Background = p.Accent
+					st.Color = p.AccentText
+					st.BorderColor = p.Accent
+				} else {
+					st.Background = p.Background
+					st.Color = p.Text
+					st.BorderColor = p.Border
+				}
+				return core.View{
+					Style:    st,
+					Children: []core.Node{core.Text{Content: label}},
+					OnPress:  func(core.PressEvent) { a.SetPreferSource(cx, val) },
+				}
+			}
+			var note core.Node
+			if isTMDB {
+				note = ui.Text("TMDB 评分（10 分制），豆瓣不可用时也保持可用", 12, ui.Regular,
+					func() core.Color { return p.TextMuted })
+			} else {
+				note = ui.Text("豆瓣评分（5 星制）；豆瓣不可用时自动切 TMDB", 12, ui.Regular,
+					func() core.Color { return p.TextMuted })
+			}
+			return core.View{
+				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, Wrap: core.Wrap},
+				Children: []core.Node{
+					makeOpt("豆瓣优先", "douban", !isTMDB),
+					makeOpt("TMDB 优先", "tmdb", isTMDB),
+					note,
+				},
+			}
+		}),
+	)
 }
 
 // logVersion 全局日志版本号：新日志 +1，Setup 里启动唯一的监听 goroutine。

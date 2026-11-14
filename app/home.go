@@ -140,7 +140,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 		k := kind.Get()
 		var attempt func(try int)
 		attempt = func(try int) {
-			list, err := client.DoubanList(k, tag, sort, pageLimit, 0)
+			list, source, err := client.DoubanListWithSource(k, tag, sort, pageLimit, 0, a.PreferTMDB())
 			cx.Post(func() {
 				if reqKey.Get() != key {
 					ClientLog("[home] 响应过期丢弃 %s", key)
@@ -169,10 +169,15 @@ func Home(cx *core.Scope, a *App) core.Node {
 					return
 				}
 				loading.Set(false)
-				ClientLog("[home] 请求完成 %s: %d 条", key, len(list))
+				ClientLog("[home] 请求完成 %s: %d 条 source=%q", key, len(list), source)
 				items.Set(list)
 				a.HomeCache.Put(key, list)
 				noMore.Set(len(list) < pageLimit)
+				// 数据源是 TMDB（豆瓣全通道不可用）：弹窗提示一次。
+				if source == "tmdb" && !a.tmdbNoticeShown {
+					a.tmdbNoticeShown = true
+					a.ShowTMDBNotice(cx)
+				}
 			})
 		}
 		go attempt(0)
@@ -198,7 +203,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 		client := a.API
 		pageLoading.Set(true)
 		go func() {
-			list, err := client.DoubanList(k, tag, sort, pageLimit, start)
+			list, _, err := client.DoubanListWithSource(k, tag, sort, pageLimit, start, a.PreferTMDB())
 			cx.Post(func() {
 				pageLoading.Set(false)
 				if reqKey.Get() != key || err != nil {

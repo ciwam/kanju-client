@@ -5,7 +5,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"sync"
+
+	"github.com/nsgo-dev/nsgo/base"
 
 	"kanju/client/api"
 
@@ -29,6 +32,10 @@ type App struct {
 	HomeCache homeCache
 	// OnPageLoaded 分页数据到达后的滚动补偿回调（posterGrid 设置）。
 	OnPageLoaded func(firstNew int)
+	// tmdbNoticeShown TMDB 兜底弹窗只提示一次。
+	tmdbNoticeShown bool
+	// PreferSourceSignal 影片数据源偏好（"douban"|"tmdb"），持久化在 Storage。
+	PreferSourceSignal *core.Signal[string]
 	// TestSetHomeItems 测试挂钩：Home 挂载时注册直接驱动网格数据的函数。
 	TestSetHomeItems func([]api.DoubanItem)
 
@@ -128,6 +135,8 @@ func EmbeddedBackend(cx *core.Scope) (string, error) {
 			NoAuth: true,
 			// 后端日志收进客户端的统一日志缓冲（设置页可看）。
 			LogOutput: BackendLogWriter(),
+			// TMDB key：环境变量（豆瓣风控时的第二数据源）。
+			TMDBKey: os.Getenv("TMDB_API_KEY"),
 			// 开启后端 debug 日志（请求路由+全链路计时）。
 			Debug: true,
 		}
@@ -149,25 +158,26 @@ var embeddedStop func()
 // SetupForTest 构造不读持久化的 App（nsgotest 用）。
 func SetupForTest(cx *core.Scope, base string) *App {
 	a := &App{
-		API:              api.New(base),
-		Server:           core.NewSignal(cx, base),
-		User:             core.NewSignal(cx, (*api.User)(nil)),
-		Tab:              core.NewSignal(cx, "home"),
-		Embedded:         core.NewSignal(cx, false),
-		DetailTitle:      core.NewSignal(cx, ""),
-		DetailCover:      core.NewSignal(cx, ""),
-		DetailURL:        core.NewSignal(cx, ""),
-		DetailSubject:    core.NewSignal(cx, (*api.Subject)(nil)),
-		DetailData:       core.NewSignal(cx, (*api.DetailResp)(nil)),
-		DetailLoading:    core.NewSignal(cx, false),
-		DetailErr:        core.NewSignal(cx, ""),
-		DetailPlayBusy:   core.NewSignal(cx, ""),
-		DetailFav:        core.NewSignal(cx, false),
-		DetailNowPlaying: core.NewSignal(cx, ""),
-		PlayTitle:        core.NewSignal(cx, ""),
-		PlayURL:          core.NewSignal(cx, ""),
-		PlaySource:       core.NewSignal(cx, ""),
-		PlaySourceURL:    core.NewSignal(cx, ""),
+		API:                api.New(base),
+		Server:             core.NewSignal(cx, base),
+		User:               core.NewSignal(cx, (*api.User)(nil)),
+		Tab:                core.NewSignal(cx, "home"),
+		Embedded:           core.NewSignal(cx, false),
+		PreferSourceSignal: core.NewSignal(cx, "douban"),
+		DetailTitle:        core.NewSignal(cx, ""),
+		DetailCover:        core.NewSignal(cx, ""),
+		DetailURL:          core.NewSignal(cx, ""),
+		DetailSubject:      core.NewSignal(cx, (*api.Subject)(nil)),
+		DetailData:         core.NewSignal(cx, (*api.DetailResp)(nil)),
+		DetailLoading:      core.NewSignal(cx, false),
+		DetailErr:          core.NewSignal(cx, ""),
+		DetailPlayBusy:     core.NewSignal(cx, ""),
+		DetailFav:          core.NewSignal(cx, false),
+		DetailNowPlaying:   core.NewSignal(cx, ""),
+		PlayTitle:          core.NewSignal(cx, ""),
+		PlayURL:            core.NewSignal(cx, ""),
+		PlaySource:         core.NewSignal(cx, ""),
+		PlaySourceURL:      core.NewSignal(cx, ""),
 	}
 	return a
 }
@@ -193,10 +203,22 @@ func Setup(cx *core.Scope) *App {
 		}
 	})
 
-	// 日志落盘到应用数据目录 logs/（崩溃后仍可排查）。
-	InitFileLogs(cx.DataDir())
-
 	a := SetupForTest(cx, defaultBase)
+
+	// 恢复数据源偏好（douban | tmdb）。
+	store := cx.Storage()
+	if v, ok := store.GetItem("prefer_source"); ok && v == "tmdb" {
+		a.PreferSourceSignal.Set("tmdb")
+	}
+	cx.Effect(func() {
+		v := a.PreferSourceSignal.Get()
+		core.Untracked(cx, func() bool {
+			store.SetItem("prefer_source", v)
+			ClientLog("[data] 数据源偏好 = %s", v)
+			return true
+		})
+	})
+
 	// 全部 API 请求打进统一日志（排查用）。
 	a.API.Logf = ClientLog
 	// 401 全局处理：token 过期时清登录态回登录页（只触发一次）。
@@ -208,7 +230,6 @@ func Setup(cx *core.Scope) *App {
 	}
 	startLogPump(cx)
 	a.Embedded.Set(embedded)
-	store := cx.Storage()
 	if server, ok := store.GetItem("server"); ok && server != "" {
 		a.API.SetBase(server)
 		a.Server.Set(server)
@@ -235,6 +256,32 @@ func Setup(cx *core.Scope) *App {
 		}()
 	}
 	return a
+}
+
+// PreferTMDB 返回用户是否设置了 TMDB 优先。
+func (a *App) PreferTMDB() string {
+	if a.PreferSourceSignal.Get() == "tmdb" {
+		return "tmdb"
+	}
+	return ""
+}
+
+// SetPreferSource 切换影片数据源偏好。
+func (a *App) SetPreferSource(cx *core.Scope, v string) {
+	a.PreferSourceSignal.Set(v)
+	ClientLog("[data] 数据源偏好切换为 %s", v)
+}
+
+// ShowTMDBNotice 弹窗告知当前数据来自 TMDB（豆瓣全通道不可用）。
+func (a *App) ShowTMDBNotice(cx *core.Scope) {
+	ClientLog("[data] 豆瓣不可用，当前使用 TMDB 数据源（评分体系不同）")
+	base.ShowAlertDialog(cx, base.AlertDialog{
+		Title:       "数据源已切换",
+		Description: "豆瓣接口暂时不可用，当前显示的是 TMDB 的影片数据。评分与豆瓣不同，恢复后将自动切回。",
+		Actions: []core.AlertAction{
+			{Label: "知道了", Role: core.AlertCancel},
+		},
+	}, nil)
 }
 
 // SaveAuth 持久化登录凭证。
