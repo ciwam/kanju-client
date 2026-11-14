@@ -270,12 +270,6 @@ func (a *App) PreferTMDB() string {
 	return ""
 }
 
-// SetPreferSource 切换影片数据源偏好。
-func (a *App) SetPreferSource(cx *core.Scope, v string) {
-	a.PreferSourceSignal.Set(v)
-	ClientLog("[data] 数据源偏好切换为 %s", v)
-}
-
 // SaveAuth 持久化登录凭证。
 func (a *App) SaveAuth(cx *core.Scope, token string, u *api.User) {
 	a.API.ResetUnauthorized()
