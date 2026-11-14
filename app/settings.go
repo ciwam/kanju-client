@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,14 +100,23 @@ func LogCard(cx *core.Scope) core.View {
 			return
 		}
 		ClientLog("[logs] 打开日志目录 %s", dir)
-		// nsgo 的 OpenURL 拒绝 file:// 协议（refusedSchemes），用 open 命令。
-		// -R 揭示当天的日志文件：窗口不存在则开新窗，已存在则聚焦并选中，
-		// 比裸 open 目录稳定（目录窗口在其它空间时裸 open 只闪一下）。
+		// nsgo 的 OpenURL 拒绝 file:// 协议（refusedSchemes）。
+		// open -R 在连续点击时会让 Finder 主队列 SIGABRT 崩溃（实测，
+		// 见 DiagnosticReports/Finder-*.ips），osascript reveal 稳定。
 		target := filepath.Join(dir, time.Now().Format("2006-01-02")+".log")
 		if _, err := os.Stat(target); err != nil {
-			target = dir // 当天文件还没生成时退回打开目录
+			// 当天文件还没生成时退回打开目录。
+			script := fmt.Sprintf(`tell application "Finder" to open (POSIX file %q as alias)`, dir)
+			if err := exec.Command("osascript", "-e", script).Start(); err != nil {
+				ClientLog("[logs] 打开目录失败: %v", err)
+			}
+			return
 		}
-		if err := exec.Command("open", "-R", target).Start(); err != nil {
+		script := fmt.Sprintf(`tell application "Finder"
+  reveal (POSIX file %q as alias)
+  activate
+end tell`, target)
+		if err := exec.Command("osascript", "-e", script).Start(); err != nil {
 			ClientLog("[logs] 打开目录失败: %v", err)
 		}
 	}

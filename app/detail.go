@@ -61,6 +61,11 @@ func (a *App) ToggleFav(cx *core.Scope) {
 // 20 秒）后到再追加。状态放 App 而非页面局部：页面函数会被 shell 的
 // Dynamic 重复调用，局部信号分裂成多实例时，请求回调写旧实例导致白屏。
 func (a *App) LoadDetail(cx *core.Scope, u, title, cover string) {
+	// 防重入：同 URL 已在加载时跳过（effect 会因页签重渲染被重复创建）。
+	if a.DetailLoading.Get() && a.DetailURL.Get() == u {
+		ClientLog("[detail] 跳过重复加载 %s", u)
+		return
+	}
 	a.DetailLoading.Set(true)
 	a.DetailErr.Set("")
 	a.DetailSubject.Set(nil)
@@ -300,39 +305,68 @@ func subjectHead(cx *core.Scope, a *App, s *api.Subject) []core.Node {
 	}}
 }
 
-// channelSection 一条线路的选集列表。
+// epCollapseLimit 选集折叠阈值：超过则默认只渲染前 N 个 + 展开按钮。
+// 142 集 × 8 线路一次全渲染会把主线程卡死甚至 OOM（闪退根因）。
+const epCollapseLimit = 40
+
+// channelSection 一条线路的选集列表（超长折叠）。
 func channelSection(cx *core.Scope, a *App, ch api.Channel, play func(api.Episode, api.Channel)) core.View {
 	name := ch.Name
 	if ch.SourceName != "" && ch.SourceName != name {
 		name += "（" + ch.SourceName + "）"
 	}
 	nowPlaying := a.DetailNowPlaying.Get()
-	epRow := core.View{Style: core.Style{Direction: core.Row, Gap: 6, Wrap: core.Wrap}}
-	for _, ep := range ch.Episodes {
-		ep := ep
-		current := ep.URL != "" && ep.URL == nowPlaying
-		epRow.Children = append(epRow.Children, core.View{
-			StyleFunc: func() core.Style {
-				p := cx.Palette()
-				st := core.Style{
-					Padding: core.Symmetric(3, 10), CornerRadius: 6, FontSize: 12,
-					Background: p.Background, Color: p.Text,
-					BorderColor: p.Border, BorderWidth: 1, BorderStyle: core.BorderSolid,
+	expanded := core.NewSignal(cx, false)
+	body := core.Dynamic(func(*core.Scope) core.Node {
+		eps := ch.Episodes
+		limit := epCollapseLimit
+		// 展开时全量；未展开时保证当前播放的集可见（截窗向前扩）。
+		if expanded.Get() || len(eps) <= limit {
+			limit = len(eps)
+		} else if nowPlaying != "" {
+			for i, ep := range eps {
+				if ep.URL == nowPlaying && i >= limit {
+					limit = i + 1
+					break
 				}
-				if current {
-					st.Background = p.Accent
-					st.Color = p.AccentText
-					st.BorderColor = p.Accent
-				}
-				return st
-			},
-			Children: []core.Node{core.Text{Content: ep.Title}},
-			OnPress:  func(core.PressEvent) { play(ep, ch) },
-		})
-	}
+			}
+		}
+		row := core.View{Style: core.Style{Direction: core.Row, Gap: 6, Wrap: core.Wrap}}
+		for i := 0; i < limit && i < len(eps); i++ {
+			ep := eps[i]
+			current := ep.URL != "" && ep.URL == nowPlaying
+			row.Children = append(row.Children, core.View{
+				StyleFunc: func() core.Style {
+					p := cx.Palette()
+					st := core.Style{
+						Padding: core.Symmetric(3, 10), CornerRadius: 6, FontSize: 12,
+						Background: p.Background, Color: p.Text,
+						BorderColor: p.Border, BorderWidth: 1, BorderStyle: core.BorderSolid,
+					}
+					if current {
+						st.Background = p.Accent
+						st.Color = p.AccentText
+						st.BorderColor = p.Accent
+					}
+					return st
+				},
+				Children: []core.Node{core.Text{Content: ep.Title}},
+				OnPress:  func(core.PressEvent) { play(ep, ch) },
+			})
+		}
+		children := []core.Node{row}
+		if len(eps) > limit {
+			children = append(children, ui.Button{
+				Text:    "展开全部 " + itoa(int64(len(eps))) + " 集",
+				Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				OnPress: func() { expanded.Set(true) },
+			})
+		}
+		return core.View{Style: core.Style{Gap: 8}, Children: children}
+	})
 	return theme.Card(cx,
 		theme.Title(name, 14, ui.Semibold),
-		epRow,
+		body,
 	)
 }
 
