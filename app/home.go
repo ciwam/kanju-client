@@ -435,9 +435,11 @@ func buildPosterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem
 			// 官方模式：Row 返回的子树必须响应式——cell 会被跨数据复用
 			// （bind 只更新 pos.index 信号），静态取值会让复用行永远显示
 			// 旧内容（切分类不切换的根因）。
+			// 性能关键：Dynamic 只 track row.Index()（cell 复用时变化）；
+			// items 用 Untracked 读，避免分页追加把所有 cell 标脏全量重跑。
 			it := func() api.DoubanItem {
-				list := items.Get()
-				if i := row.Index(); i < len(list) {
+				list := core.Untracked(cx, func() []api.DoubanItem { return items.Get() })
+				if i := row.Index(); i >= 0 && i < len(list) {
 					return list[i]
 				}
 				return api.DoubanItem{}
@@ -467,6 +469,15 @@ func buildPosterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem
 	}
 }
 
+// posterCardStyle 海报卡片共享样式（含 hover/active 状态样式，包级单例
+// 避免每个 cell 每次渲染新建闭包）。
+var posterCardStyle = core.Style{
+	Width: core.Pct(100), AspectRatio: 0.7, CornerRadius: 6,
+	Background: core.RGB(0xD9D9D9), Overflow: core.Hidden,
+	Hover:  &core.Style{Background: core.RGB(0xC8C8C8)},
+	Active: &core.Style{Transform: core.Transform{Scale: 0.98}},
+}
+
 // posterCell 单个海报卡片：点击进豆瓣详情。
 func posterCell(cx *core.Scope, a *App, it api.DoubanItem) core.Node {
 	title := it.Title
@@ -474,15 +485,7 @@ func posterCell(cx *core.Scope, a *App, it api.DoubanItem) core.Node {
 		Style: core.Style{Gap: 6},
 		Children: []core.Node{
 			core.View{
-				StyleFunc: func() core.Style {
-					return core.Style{
-						Width: core.Pct(100), AspectRatio: 0.7, CornerRadius: 6,
-						Background: core.RGB(0xD9D9D9), Overflow: core.Hidden,
-						// 悬停微亮，按下有缩放反馈。
-						Hover:  &core.Style{Background: core.RGB(0xC8C8C8)},
-						Active: &core.Style{Transform: core.Transform{Scale: 0.98}},
-					}
-				},
+				Style: posterCardStyle,
 				Children: []core.Node{
 					core.Image{
 						Source:       core.Src(a.API.ImageURL(it.Cover)),
