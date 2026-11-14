@@ -194,7 +194,12 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 			} else {
 				head = append(head, theme.Title(a.DetailTitle.Get(), 20, ui.Semibold))
 			}
-			children := []core.Node{}
+			children := []core.Node{core.View{
+				StyleFunc: func() core.Style {
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}
+				},
+				Children: []core.Node{backButton(cx, a)},
+			}}
 			children = append(children, head...)
 
 			children = append(children,
@@ -224,7 +229,7 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 						theme.Title("未找到播放资源", 14, ui.Semibold),
 						ui.Text("各站源都没有收录这部影片，试试直接搜索片名", 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
 						ui.Button{Text: "去搜索", Variant: ui.ButtonSecondary,
-							OnPress: func() { a.Tab.Set("search") }},
+							OnPress: func() { a.OpenSearch(a.DetailTitle.Get()) }},
 					))
 				}
 			}

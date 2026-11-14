@@ -23,8 +23,15 @@ type App struct {
 	Server *core.Signal[string]
 	User   *core.Signal[*api.User]
 	Tab    *core.Signal[string]
+	// HomeView 首页内的视图切换：""=分类浏览，"search"=搜索面板，
+	// "history"=历史面板，"favorites"=收藏面板。
+	HomeView *core.Signal[string]
+	// SearchKeyword 预填搜索框的关键词（跨页面进入搜索面板时设置）。
+	SearchKeyword *core.Signal[string]
 	// Embedded 标记当前连接的是进程内嵌后端（免登录）。
 	Embedded *core.Signal[bool]
+	// prevTab 上一页签（返回按钮用）；非信号，导航时序由 UI 线程保证。
+	prevTab string
 
 	// HomeCache 首页分类数据缓存（跨页签保留）。
 	HomeCache homeCache
@@ -104,10 +111,6 @@ func (c *homeCache) Put(key string, v []api.DoubanItem) {
 
 var tabs = []Tab{
 	{ID: "home", Text: "首页", Icon: lucide.House},
-	{ID: "search", Text: "搜索", Icon: lucide.Search},
-	{ID: "history", Text: "历史", Icon: lucide.Clock},
-	{ID: "favorites", Text: "收藏", Icon: lucide.Star},
-	{ID: "settings", Text: "设置", Icon: lucide.Settings},
 }
 
 // 嵌入后端的生命周期：整个进程一份，退出时随进程结束。
@@ -161,6 +164,8 @@ func SetupForTest(cx *core.Scope, base string) *App {
 		Server:             core.NewSignal(cx, base),
 		User:               core.NewSignal(cx, (*api.User)(nil)),
 		Tab:                core.NewSignal(cx, "home"),
+		HomeView:           core.NewSignal(cx, ""),
+		SearchKeyword:      core.NewSignal(cx, ""),
 		Embedded:           core.NewSignal(cx, false),
 		PreferSourceSignal: core.NewSignal(cx, "douban"),
 		DetailTitle:        core.NewSignal(cx, ""),
@@ -257,6 +262,30 @@ func Setup(cx *core.Scope) *App {
 	return a
 }
 
+// Navigate 记录来源页签并切换（详情/播放器/设置页的返回按钮用）。
+func (a *App) Navigate(id string) {
+	ClientLog("[nav] 切换页签 %s -> %s", a.Tab.Get(), id)
+	a.prevTab = a.Tab.Get()
+	a.Tab.Set(id)
+}
+
+// Back 返回上一页签；没有来源时回首页。
+func (a *App) Back() {
+	back := a.prevTab
+	if back == "" || back == a.Tab.Get() {
+		back = "home"
+	}
+	a.Navigate(back)
+}
+
+// OpenSearch 进入首页的搜索面板并预填关键词。
+func (a *App) OpenSearch(keyword string) {
+	ClientLog("[nav] 打开搜索面板 %q", keyword)
+	a.SearchKeyword.Set(keyword)
+	a.HomeView.Set("search")
+	a.Tab.Set("home")
+}
+
 // CategoryLabelOf 返回首页当前选中分类的中文名（测试与调试用）。
 func (a *App) CategoryLabelOf() string {
 	return currentCategoryLabel(a.homeKind, a.homeSub, a.homeChild, a.PreferSourceSignal.Get() == "tmdb")
@@ -304,6 +333,7 @@ func (a *App) SetServer(cx *core.Scope, base string) {
 // OpenDetail 记录上下文并跳到详情页签。
 func (a *App) OpenDetail(title, cover, detailURL string) {
 	ClientLog("[nav] 打开详情 %q url=%s", title, detailURL)
+	a.prevTab = a.Tab.Get()
 	a.DetailTitle.Set(title)
 	a.DetailCover.Set(cover)
 	a.DetailURL.Set(detailURL)
@@ -311,9 +341,10 @@ func (a *App) OpenDetail(title, cover, detailURL string) {
 }
 
 // OpenPlayer 记录播放上下文并跳到播放器。episodeURL 是原始选集
-// 地址（历史/续播的稳定键），playURL 是代理改写后的播放地址。
+// 地址（历史/续播的稳定匹配键），playURL 是代理改写后的播放地址。
 func (a *App) OpenPlayer(title, playURL, episodeURL, sourceName, sourceURL string) {
 	ClientLog("[nav] 播放 %q url=%s 来源=%s", title, playURL, sourceName)
+	a.prevTab = a.Tab.Get()
 	a.PlayTitle.Set(title)
 	a.PlayEpisodeURL.Set(episodeURL)
 	a.PlayURL.Set(playURL)

@@ -11,8 +11,8 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// History 观看历史。
-func History(cx *core.Scope, a *App) core.Node {
+// historyPanel 首页的历史面板（替代原独立历史页签）。
+func historyPanel(cx *core.Scope, a *App) core.Node {
 	items := core.NewSignalFunc(cx, []api.History(nil), func(a, b []api.History) bool { return false })
 	loading := core.NewSignal(cx, false)
 	errMsg := core.NewSignal(cx, "")
@@ -37,7 +37,7 @@ func History(cx *core.Scope, a *App) core.Node {
 		core.Untracked(cx, func() bool { refresh(); return true })
 	})
 
-	return listPage(cx, a,
+	return panelFrame(cx, a, "观看历史", listPage(cx, a,
 		func() int { return len(items.Get()) },
 		func(i int) any { return items.Get()[i].ID },
 		func(cx *core.Scope, i int) core.Node {
@@ -49,11 +49,11 @@ func History(cx *core.Scope, a *App) core.Node {
 				})
 		},
 		loading, errMsg, refresh, "还没有观看记录",
-	)
+	))
 }
 
-// Favorites 收藏。
-func Favorites(cx *core.Scope, a *App) core.Node {
+// favoritesPanel 首页的收藏面板（替代原独立收藏页签）。
+func favoritesPanel(cx *core.Scope, a *App) core.Node {
 	items := core.NewSignalFunc(cx, []api.Favorite(nil), func(a, b []api.Favorite) bool { return false })
 	loading := core.NewSignal(cx, false)
 	errMsg := core.NewSignal(cx, "")
@@ -107,7 +107,7 @@ func Favorites(cx *core.Scope, a *App) core.Node {
 		})
 	}
 
-	return listPage(cx, a,
+	return panelFrame(cx, a, "我的收藏", listPage(cx, a,
 		func() int { return len(items.Get()) },
 		func(i int) any { return items.Get()[i].ID },
 		func(cx *core.Scope, i int) core.Node {
@@ -118,7 +118,38 @@ func Favorites(cx *core.Scope, a *App) core.Node {
 				}, func() { confirmRemove(f) })
 		},
 		loading, errMsg, refresh, "还没有收藏",
-	)
+	))
+}
+
+// panelFrame 面板外壳：标题行（返回 + 标题）+ 内容。返回关闭面板
+// 回分类浏览（面板是首页内的一层，Back 的 prevTab 恒为 home）。
+func panelFrame(cx *core.Scope, a *App, title string, content core.Node) core.View {
+	return core.View{
+		StyleFunc: func() core.Style {
+			return core.Style{Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
+		},
+		Children: []core.Node{
+			core.View{
+				StyleFunc: func() core.Style {
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}
+				},
+				Children: []core.Node{
+					ui.Button{Text: "返回", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "back", OnPress: func() {
+						a.HomeView.Set("")
+					}},
+					theme.Title(title, 17, ui.Semibold),
+				},
+			},
+			content,
+		},
+	}
+}
+
+// backButton 详情/播放器/设置页的左上角返回。
+func backButton(cx *core.Scope, a *App) core.Node {
+	return ui.Button{Text: "返回", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "back", OnPress: func() {
+		a.Back()
+	}}
 }
 
 // listPage 通用列表页骨架。
@@ -127,7 +158,7 @@ func listPage(cx *core.Scope, a *App,
 	loading *core.Signal[bool], errMsg *core.Signal[string], refresh func(), emptyText string) core.View {
 	return core.View{
 		StyleFunc: func() core.Style {
-			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 12, Overflow: core.Hidden})
+			return core.Style{Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
 		},
 		Children: []core.Node{
 			theme.Row(8,

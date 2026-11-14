@@ -318,6 +318,25 @@ func Home(cx *core.Scope, a *App) core.Node {
 			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 12, Overflow: core.Hidden})
 		},
 		Children: []core.Node{
+			browseView(cx, a, kind, sub, child, groups, items, load, loadMore,
+				pageLoading, noMore, catKey, sectionTitle, loading, errMsg),
+		},
+	}
+}
+
+// browseView 分类浏览视图（首页默认）：顶部搜索框 + 历史/收藏入口，
+// 下面是原来的分类 chips 与海报网格。
+func browseView(cx *core.Scope, a *App,
+	kind *core.Signal[string], sub, child *core.Signal[int], groups func() []tabGroup,
+	items *core.Signal[[]api.DoubanItem], load func(), loadMore func(),
+	pageLoading, noMore *core.Signal[bool], catKey *core.Signal[string],
+	sectionTitle *core.Signal[string], loading *core.Signal[bool], errMsg *core.Signal[string]) core.View {
+	return core.View{
+		StyleFunc: func() core.Style {
+			return core.Style{Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
+		},
+		Children: []core.Node{
+			homeToolbar(cx, a),
 			kindSwitcher(cx, a, kind, sub, child, groups),
 			core.Dynamic(func(*core.Scope) core.Node {
 				t := sectionTitle.Get()
@@ -343,6 +362,36 @@ func Home(cx *core.Scope, a *App) core.Node {
 				}
 			}),
 			posterGrid(cx, a, items, loadMore, pageLoading, noMore, catKey),
+		},
+	}
+}
+
+// homeToolbar 首页工具行：搜索框（回车进搜索面板）+ 历史/收藏入口。
+func homeToolbar(cx *core.Scope, a *App) core.Node {
+	keyword := core.NewSignal(cx, a.SearchKeyword.Get())
+	return core.View{
+		StyleFunc: func() core.Style {
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}
+		},
+		Children: []core.Node{
+			ui.Input{
+				Value:       keyword.Get,
+				OnChange:    keyword.Set,
+				Placeholder: "搜索片名，回车搜索…",
+				TestID:      "home-keyword",
+				OnSubmit:    func(string) { a.SearchKeyword.Set(keyword.Get()); a.HomeView.Set("search") },
+				Style:       core.Style{FlexGrow: 1, FlexShrink: 1},
+			},
+			ui.Button{Text: "搜索", Variant: ui.ButtonPrimary, TestID: "home-search", OnPress: func() {
+				a.SearchKeyword.Set(keyword.Get())
+				a.HomeView.Set("search")
+			}},
+			ui.Button{Text: "历史", Variant: ui.ButtonSecondary, TestID: "home-history", OnPress: func() {
+				a.HomeView.Set("history")
+			}},
+			ui.Button{Text: "收藏", Variant: ui.ButtonSecondary, TestID: "home-favorites", OnPress: func() {
+				a.HomeView.Set("favorites")
+			}},
 		},
 	}
 }

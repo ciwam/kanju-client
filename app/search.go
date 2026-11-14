@@ -11,9 +11,10 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Search 搜索页：豆瓣关键词搜索（一次性返回、按影片去重，与 Web 版一致）。
-func Search(cx *core.Scope, a *App) core.Node {
-	keyword := core.NewSignal(cx, "")
+// searchPanel 首页的搜索面板（替代原独立搜索页签）。keyword 初值
+// 来自 App.SearchKeyword（其它页面进入搜索时预填）。
+func searchPanel(cx *core.Scope, a *App) core.Node {
+	keyword := core.NewSignal(cx, a.SearchKeyword.Get())
 	running := core.NewSignal(cx, false)
 	results := core.NewSignalFunc(cx, []api.DoubanItem(nil), func(a, b []api.DoubanItem) bool { return false })
 	errMsg := core.NewSignal(cx, "")
@@ -51,7 +52,7 @@ func Search(cx *core.Scope, a *App) core.Node {
 	}
 
 	inputRow := core.View{
-		StyleFunc: func() core.Style { return core.Style{Direction: core.Row, Gap: 8} },
+		StyleFunc: func() core.Style { return core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, FlexShrink: 1} },
 		Children: []core.Node{
 			ui.Input{Value: keyword.Get, OnChange: keyword.Set, Placeholder: "搜索片名…", TestID: "keyword",
 				OnSubmit: func(string) { submit() }, Style: core.Style{FlexGrow: 1}},
@@ -61,10 +62,19 @@ func Search(cx *core.Scope, a *App) core.Node {
 
 	return core.View{
 		StyleFunc: func() core.Style {
-			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 12, Overflow: core.Hidden})
+			return core.Style{Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
 		},
 		Children: []core.Node{
-			inputRow,
+			core.View{
+				StyleFunc: func() core.Style {
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}
+				},
+				Children: []core.Node{
+					backButton(cx, a),
+					theme.Title("搜索", 17, ui.Semibold),
+					inputRow,
+				},
+			},
 			core.Dynamic(func(*core.Scope) core.Node {
 				// 状态行：搜索中 / 结果计数。
 				var parts string

@@ -33,7 +33,7 @@ func Settings(cx *core.Scope, a *App) core.Node {
 			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 14, Overflow: core.Hidden})
 		},
 		Children: []core.Node{
-			theme.Title("设置", 20, ui.Semibold),
+			theme.Row(10, backButton(cx, a), theme.Title("设置", 20, ui.Semibold)),
 			// 服务器卡片：内嵌模式下没有意义（地址是自动分配的本地端口），隐藏。
 			core.Dynamic(func(*core.Scope) core.Node {
 				if a.Embedded.Get() {

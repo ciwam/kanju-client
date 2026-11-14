@@ -4,48 +4,69 @@ import (
 	"kanju/client/theme"
 
 	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/desktop"
 )
 
-// Shell 已登录的主外壳：桌面侧栏 + 内容区。
+// Shell 已登录的主外壳：单内容区（页内导航），设置走菜单栏。
 func Shell(cx *core.Scope, a *App) core.Node {
-	return core.Dynamic(func(*core.Scope) core.Node {
-		var sections []ui.SidebarSection
-		var items []ui.SidebarItem
-		user := a.User.Get()
-		for _, t := range tabs {
-			if t.Admin && (user == nil || user.Role != "admin") {
-				continue
-			}
-			items = append(items, ui.SidebarItem{ID: t.ID, Text: t.Text, Icon: t.Icon, TestID: "nav-" + t.ID})
-		}
-		sections = append(sections, ui.SidebarSection{Items: items})
-
-		// 内嵌模式：不显示用户身份与退出；外部服务器才显示 footer。
-		var footer []core.Node
-		if !a.Embedded.Get() {
-			footer = append(footer,
-				ui.Text(userName(a), 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
-				ui.Button{Text: "退出登录", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-					OnPress: func() { a.Logout(cx) }, TestID: "logout"},
-			)
-		}
-
-		return ui.SidebarShell{
-			TestID: "shell",
-			Sidebar: []core.Node{ui.Sidebar{Sections: sections, Selected: a.Tab.Get, OnSelect: func(id string) {
-				ClientLog("[nav] 点击页签 %s", id)
-				a.Tab.Set(id)
-			}}},
-			SidebarFooter: footer,
-			Header: []core.Node{core.Dynamic(func(*core.Scope) core.Node {
-				return theme.Title(tabTitle(a.Tab.Get()), 15, ui.Semibold)
-			})},
-			Content: []core.Node{core.Dynamic(func(*core.Scope) core.Node {
-				return page(cx, a, a.Tab.Get())
-			})},
-		}
+	// macOS 菜单栏：首项是 app 菜单；「设置…」⌘, 唤出设置页。
+	cx.Effect(func() {
+		core.Untracked(cx, func() bool {
+			desktop.SetApplicationMenu(cx, []desktop.MenuItem{
+				{Items: []desktop.MenuItem{
+					{Role: desktop.MenuAbout},
+					{Separator: true},
+					{Role: desktop.MenuHide},
+					{Role: desktop.MenuHideOthers},
+					{Role: desktop.MenuShowAll},
+					{Separator: true},
+					{Role: desktop.MenuQuit},
+				}},
+				{Label: "编辑", Items: []desktop.MenuItem{
+					{Role: desktop.MenuUndo},
+					{Role: desktop.MenuRedo},
+					{Separator: true},
+					{Role: desktop.MenuCut},
+					{Role: desktop.MenuCopy},
+					{Role: desktop.MenuPaste},
+					{Role: desktop.MenuSelectAll},
+				}},
+				{Label: "显示", Items: []desktop.MenuItem{
+					{Role: desktop.MenuToggleFullScreen},
+				}},
+				{Label: "设置", Items: []desktop.MenuItem{
+					{Label: "设置…", Shortcut: "mod+,", OnSelect: func() {
+						a.Navigate("settings")
+					}},
+				}},
+			})
+			return true
+		})
 	})
+
+	return core.View{
+		TestID: "shell",
+		StyleFunc: func() core.Style {
+			return theme.Fill().Merge(core.Style{Overflow: core.Hidden})
+		},
+		Children: []core.Node{core.Dynamic(func(*core.Scope) core.Node {
+			// 首页面板（搜索/历史/收藏）在 page 层分发：与 detail/player
+			// 同一 Dynamic——嵌套 Dynamic 的区域替换踩框架 commit 丢变更
+			// bug（列表 splice 同源），平铺分发可靠。
+			tab := a.Tab.Get()
+			if tab == "home" {
+				switch a.HomeView.Get() {
+				case "search":
+					return searchPanel(cx, a)
+				case "history":
+					return historyPanel(cx, a)
+				case "favorites":
+					return favoritesPanel(cx, a)
+				}
+			}
+			return page(cx, a, tab)
+		})},
+	}
 }
 
 func userName(a *App) string {
@@ -55,11 +76,15 @@ func userName(a *App) string {
 	return ""
 }
 
-func tabTitle(id string) string {
-	for _, t := range tabs {
-		if t.ID == id {
-			return t.Text
-		}
+// pageTitle 非首页页签的标题（首页自己管理头部）。
+func pageTitle(id string) string {
+	switch id {
+	case "detail":
+		return "影片详情"
+	case "player":
+		return "正在播放"
+	case "settings":
+		return "设置"
 	}
 	return "Kanju"
 }
@@ -68,20 +93,10 @@ func tabTitle(id string) string {
 func page(cx *core.Scope, a *App, id string) core.Node {
 	ClientLog("[nav] 页面挂载 %s", id)
 	switch id {
-	case "home":
-		return Home(cx, a)
-	case "search":
-		return Search(cx, a)
 	case "detail":
 		return SubjectDetail(cx, a)
 	case "player":
 		return Player(cx, a)
-	case "history":
-		return History(cx, a)
-	case "favorites":
-		return Favorites(cx, a)
-	case "live":
-		return Live(cx, a)
 	case "settings":
 		return Settings(cx, a)
 	default:

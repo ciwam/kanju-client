@@ -253,6 +253,7 @@ func Player(cx *core.Scope, a *App) core.Node {
 				Style: core.Style{Gap: 6, FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(8, 12)},
 				Children: []core.Node{
 					theme.Row(10,
+						backButton(cx, a),
 						theme.Title(title, 15, ui.Semibold),
 					),
 					playerArea,
