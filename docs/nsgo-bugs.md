@@ -222,3 +222,25 @@ dispose 的其它 scope 的信号。
 - 实机：macOS 15（Darwin 23.6.0），arm64
 - 复现工程：`/Users/wangs/dev/code/kanju-client`（app_test.go、
   theme/grid_columns.go、app/home.go 中的绕过实现可作参考）
+
+---
+
+## 附：更新 nsgo 的坑——goproxy.cn 拉新快照失败
+
+**现象**：`go get github.com/nsgo-dev/nsgo@<新 commit>` 时默认
+GOPROXY（goproxy.cn）报：
+
+```
+read "https://goproxy.cn/github.com/nsgo-dev/nsgo/@v/v0.0.0-...zip":
+stream error: stream ID 29; INTERNAL_ERROR; received from peer
+```
+
+nsgo 是伪版本频繁提交的仓库，goproxy.cn 对它的新快照偶发拉取失败
+（2026-11-15 实锤两次：4a37cb44、c9e277de）。
+
+**解法**：换官方 proxy 拉一次即可（成功后进本地模块缓存，此后
+GOPROXY 无关）：
+
+```bash
+GOPROXY=https://proxy.golang.org,direct go get github.com/nsgo-dev/nsgo@<commit>
+```
