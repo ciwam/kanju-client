@@ -411,7 +411,10 @@ func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], lo
 	}
 	return core.Dynamic(func(*core.Scope) core.Node {
 		key := catKey.Get() // track：切分类时重建 List
-		ClientLog("[home] posterGrid 装配 key=%s items=%d 条", key, len(items.Get()))
+		// 注意：这里严禁 track items（Get 会被 Dynamic 依赖）——否则分页
+		// items.Set 会重建 List 回顶。items 数用 Untracked 读取仅作日志。
+		n := core.Untracked(cx, func() int { return len(items.Get()) })
+		ClientLog("[home] posterGrid 装配 key=%s items=%d 条", key, n)
 		return buildPosterGrid(cx, a, items, loadMore, pageLoading, noMore, columns, gap, estimated, gridRef)
 	})
 }
