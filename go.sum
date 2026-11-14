@@ -45,6 +45,8 @@ github.com/nsgo-dev/nsgo v0.0.0-20261113150221-03c2543204c5 h1:YlQkVYLVqhuzEm6Pp
 github.com/nsgo-dev/nsgo v0.0.0-20261113150221-03c2543204c5/go.mod h1:CqPfBVvmmYVPE+6B3LHcRVr9B5kyx4GVEQWEzz1mzF4=
 github.com/nsgo-dev/nsgo v0.0.0-20261114162147-4a37cb4418e5 h1:p9Qj14M2yStXUqyykhlillhvTwf07iVlkeqIkidKLUY=
 github.com/nsgo-dev/nsgo v0.0.0-20261114162147-4a37cb4418e5/go.mod h1:YeHzchhvuA+EBk+o456Ut4PDuchu4cl1c7HlU9TfGUk=
+github.com/nsgo-dev/nsgo v0.0.0-20261114170025-c9e277de3ed8 h1:/QxJyJA96FA2Uu/sQ6mhFOudk8qjndCfPaDzu7otfjc=
+github.com/nsgo-dev/nsgo v0.0.0-20261114170025-c9e277de3ed8/go.mod h1:YeHzchhvuA+EBk+o456Ut4PDuchu4cl1c7HlU9TfGUk=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/xyproto/randomstring v1.0.5 h1:YtlWPoRdgMu3NZtP45drfy1GKoojuR7hmRcnhZqKjWU=

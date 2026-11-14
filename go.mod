@@ -32,7 +32,7 @@ tool github.com/nsgo-dev/nsgo/cmd/nsgo
 require (
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/antchfx/htmlquery v1.3.6
-	github.com/nsgo-dev/nsgo v0.0.0-20261114162147-4a37cb4418e5
+	github.com/nsgo-dev/nsgo v0.0.0-20261114170025-c9e277de3ed8
 	golang.org/x/crypto v0.58.0
 	golang.org/x/net v0.62.0
 	modernc.org/sqlite v1.55.0
