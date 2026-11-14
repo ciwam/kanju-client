@@ -638,13 +638,21 @@ func (s *Server) searchSiteSources(ctx context.Context, keyword string) ([]map[s
 	list := []map[string]any{}
 	for r := range ch {
 		for _, it := range r.items {
-			key := getMapStr(it, "sourceName") + "|" + getMapStr(it, "title")
+			title := getMapStr(it, "title")
+			// 标题把关：部分站源的 ac=list&wd= 接口失效，无视关键词
+			// 返回最新更新列表（实测 zuid 搜「我独自升级」返回
+			// total=125898 的 NBA/杂片）。聚合层过 titlesMatch，
+			// 与关键词无包含关系的条目直接丢弃。
+			if !titlesMatch(title, keyword) {
+				continue
+			}
+			key := getMapStr(it, "sourceName") + "|" + title
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
 			list = append(list, map[string]any{
-				"title":        getMapStr(it, "title"),
+				"title":        title,
 				"cover":        getMapStr(it, "cover"),
 				"url":          getMapStr(it, "url"),
 				"sourceName":   getMapStr(it, "sourceName"),
