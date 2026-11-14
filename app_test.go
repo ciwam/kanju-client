@@ -126,3 +126,26 @@ func TestHomeGridUpdates(t *testing.T) {
 		t.Logf("debug: 首页网格未渲染出热门内容。渲染树:\n%s", a.Dump())
 	}
 }
+
+// TestCategoryLabelTMDB TMDB 单层分类的 label 应返回中文名而非 genre 编码。
+func TestCategoryLabelTMDB(t *testing.T) {
+	stateCh := make(chan *app.App, 1)
+	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		state := app.SetupForTest(cx, "http://127.0.0.1:1")
+		state.Embedded.Set(true)
+		state.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
+		state.PreferSourceSignal.Set("tmdb")
+		select {
+		case stateCh <- state:
+		default:
+		}
+		return app.Root(cx, state)
+	}, nsgotest.Size(1000, 700))
+	a.Settle()
+	state := <-stateCh
+	// TMDB tv 第一分类的 label（chips 上显示的）应为「热门剧集」而非 tvtrend。
+	got := state.CategoryLabelOf()
+	if got != "热门剧集" {
+		t.Fatalf("TMDB tv 分类 label = %q, want 热门剧集", got)
+	}
+}

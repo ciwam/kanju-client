@@ -34,6 +34,10 @@ type App struct {
 	OnPageLoaded func(firstNew int)
 	// tmdbNoticeShown TMDB 兜底弹窗只提示一次。
 	tmdbNoticeShown bool
+	// 首页分类信号（Home 挂载时注册，用于状态查询/测试）。
+	homeKind  *core.Signal[string]
+	homeSub   *core.Signal[int]
+	homeChild *core.Signal[int]
 	// PreferSourceSignal 影片数据源偏好（"douban"|"tmdb"），持久化在 Storage。
 	PreferSourceSignal *core.Signal[string]
 	// TestSetHomeItems 测试挂钩：Home 挂载时注册直接驱动网格数据的函数。
@@ -256,6 +260,11 @@ func Setup(cx *core.Scope) *App {
 		}()
 	}
 	return a
+}
+
+// CategoryLabelOf 返回首页当前选中分类的中文名（测试与调试用）。
+func (a *App) CategoryLabelOf() string {
+	return currentCategoryLabel(a.homeKind, a.homeSub, a.homeChild, a.PreferSourceSignal.Get() == "tmdb")
 }
 
 // PreferTMDB 返回用户是否设置了 TMDB 优先。

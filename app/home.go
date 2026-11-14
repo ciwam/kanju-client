@@ -133,8 +133,9 @@ func Home(cx *core.Scope, a *App) core.Node {
 	sub := core.NewSignal(cx, 0)
 	child := core.NewSignal(cx, 0)
 	items := core.NewSignalFunc(cx, []api.DoubanItem(nil), func(a, b []api.DoubanItem) bool { return false })
-	// 测试挂钩：外部直接驱动网格数据。
+	// 测试挂钩：外部直接驱动网格数据 + 分类信号暴露。
 	a.TestSetHomeItems = items.Set
+	a.homeKind, a.homeSub, a.homeChild = kind, sub, child
 	loading := core.NewSignal(cx, false)
 	errMsg := core.NewSignal(cx, "")
 
@@ -367,12 +368,13 @@ func kindSwitcher(cx *core.Scope, a *App, kind *core.Signal[string], sub, child 
 			segItem(cx, "电影", kind.Get() != "tv", func() { resetKind(kind, sub, child, "movie") }),
 		)
 
-		// 组 chips（有子项的组显示组名，没有的组直接显示 tag）。
+		// 组 chips：显示分类的中文名（豆瓣无子项的组才回退 tag，
+		// TMDB 单层分类恒用 Label——Tag 是 g{id} 编码不能直接显示）。
 		chipRow := core.View{Style: core.Style{Direction: core.Row, Gap: 8, Wrap: core.Wrap}}
 		for i, grp := range gs {
 			i, grp := i, grp
 			label := grp.Label
-			if len(grp.Children) == 0 {
+			if len(grp.Children) == 0 && a.PreferSourceSignal.Get() != "tmdb" {
 				label = grp.Tag
 			}
 			chipRow.Children = append(chipRow.Children, chipButton(cx, label, si == i, func() {
@@ -495,11 +497,10 @@ func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], lo
 		}()
 	}
 	return core.Dynamic(func(*core.Scope) core.Node {
-		key := catKey.Get() // track：切分类时重建 List
+		_ = catKey.Get() // track：切分类时重建 List
 		// 注意：这里严禁 track items（Get 会被 Dynamic 依赖）——否则分页
-		// items.Set 会重建 List 回顶。items 数用 Untracked 读取仅作日志。
-		n := core.Untracked(cx, func() int { return len(items.Get()) })
-		ClientLog("[home] posterGrid 装配 key=%s items=%d 条", key, n)
+		// items.Set 会重建 List 回顶。
+		_ = items
 		return buildPosterGrid(cx, a, items, loadMore, pageLoading, noMore, columns, gap, estimated, gridRef)
 	})
 }
