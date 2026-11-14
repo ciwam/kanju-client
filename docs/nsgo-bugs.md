@@ -135,6 +135,30 @@ github.com/nsgo-dev/nsgo/internal/platform/apple.animate border.go:167
 
 ---
 
+## 6. headless 测试并非无窗口——测试运行时应用窗口反复闪现
+
+**现象**：`go tool nsgo test -target macos .` 运行时，屏幕上会
+快速打开/关闭一个真实的 NSGo 测试窗口（每个测试用例一次，8 个
+用例闪 8 次），抢占注意力并短暂置前。
+
+**根因**（`internal/platform/macos/testhost.go`）：
+1. `host.Open` 调 `openWindow` 创建**真实 NSWindow**，并
+   `orderFrontRegardless`（无视前台应用强制置前）+ `makeKeyWindow`；
+2. `startApp(Options{Title: "NSGo test"})` 未传 `HideDock`，激活
+   策略为 Regular——测试进程出现在 Dock，窗口为标准层级。
+
+"headless" 只指**输入合成**（无真实鼠标键盘），窗口本身真实显示。
+
+**建议**：测试宿主改用 `NSApplicationActivationPolicyAccessory`
+（`HideDock: true` 即可复用现有机制），且窗口不 `orderFrontRegardless`
+（仅 `makeKeyWindow` 或干脆 `orderBack:`）；或提供 `NSGO_TEST_OFFSCREEN`
+之类的环境变量把窗口移到屏幕外（如 `setPosition` 到 -2000）。
+
+**我们的缓解**：接受现状（仅视觉打扰，无功能影响）；跑测试期间
+不去点屏幕即可。CI（无显示器/SSH）环境不受影响。
+
+---
+
 ## 附：非缺陷但相关的框架限制
 
 - `List.NumColumns` / `EstimatedSize` 挂载时固化，不支持响应式
