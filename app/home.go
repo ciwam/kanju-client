@@ -399,9 +399,15 @@ func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], lo
 	estimated := core.Points(160/0.7) + 44
 	gridRef := &core.Ref{}
 	// 分页完成后滚到新加载的第一行（Dynamic 重建 List 会回顶，这里补偿）。
+	// 延迟两帧等新 List commit 完成，否则滚动命令作用在旧 List 上会丢。
 	a.OnPageLoaded = func(firstNew int) {
-		gridRef.ScrollToIndexAt(firstNew, 0, 0, false)
-		ClientLog("[home] 分页完成，滚回第 %d 行", firstNew)
+		go func() {
+			time.Sleep(120 * time.Millisecond)
+			cx.Post(func() {
+				gridRef.ScrollToIndexAt(firstNew, 0, 0, false)
+				ClientLog("[home] 滚回第 %d 行（延迟补偿）", firstNew)
+			})
+		}()
 	}
 	return core.Dynamic(func(*core.Scope) core.Node {
 		key := catKey.Get() // track：切分类时重建 List
