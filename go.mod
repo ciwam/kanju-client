@@ -35,7 +35,7 @@ require (
 tool github.com/nsgo-dev/nsgo/cmd/nsgo
 
 require (
-	github.com/nsgo-dev/nsgo v0.0.0-20261113150221-03c2543204c5
+	github.com/nsgo-dev/nsgo v0.0.0-20261114034347-ab015417506a
 	kanju v0.0.0-00010101000000-000000000000
 )
 

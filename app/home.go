@@ -94,12 +94,13 @@ func Home(cx *core.Scope, a *App) core.Node {
 	}
 
 	// 分类缓存：切换分类即时命中，免白屏（跨页签保留在 App 上）。
+	// stale-while-revalidate：未命中时保留旧分类内容继续显示（不清空
+	// 导致白屏），新数据到达后整体替换。首次无旧内容才显示骨架。
 	applyCache := func() {
 		if v, ok := a.HomeCache.Get(categoryKey()); ok {
 			items.Set(v)
 			noMore.Set(len(v) < pageLimit)
 		} else {
-			items.Set(nil)
 			noMore.Set(false)
 		}
 	}
@@ -133,6 +134,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 		ClientLog("[home] 请求发出 %s", key)
 		loading.Set(true)
 		errMsg.Set("")
+		ClientLog("[home] 显示旧内容等待新数据 (旧 %d 条)", len(items.Get()))
 		client := a.API
 		k := kind.Get()
 		go func() {
@@ -240,8 +242,13 @@ func Home(cx *core.Scope, a *App) core.Node {
 				case loading.Get() && len(items.Get()) == 0:
 					// 首屏骨架：比 spinner 有内容感。
 					return theme.SkeletonGrid(cx, 2, 4)
+				case loading.Get() && len(items.Get()) > 0:
+					// 切换到未缓存分类：旧内容继续显示，顶部一条加载状态。
+					return ui.Text("正在加载「"+sectionTitle.Get()+"」…", 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted })
 				case errMsg.Get() != "" && len(items.Get()) == 0:
 					return theme.ErrorRetry(cx, errMsg.Get(), func() { load() })
+				case errMsg.Get() != "" && len(items.Get()) > 0:
+					return theme.ErrorRetry(cx, "刷新失败，显示的仍是上一个分类的内容", func() { load() })
 				default:
 					return core.View{}
 				}
@@ -393,7 +400,11 @@ func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], lo
 		ColumnGap:     gap,
 		OnLoadMore:    loadMore,
 		Row: func(cx *core.Scope, row core.ListRow) core.Node {
-			it := items.Get()[row.Index()]
+			list := items.Get()
+			if row.Index() < len(list) {
+				ClientLog("[home] row %d 渲染 %q", row.Index(), list[row.Index()].Title)
+			}
+			it := list[row.Index()]
 			return posterCell(cx, a, it)
 		},
 		Footer: core.Dynamic(func(*core.Scope) core.Node {
