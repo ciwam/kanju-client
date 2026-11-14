@@ -200,6 +200,10 @@ func Home(cx *core.Scope, a *App) core.Node {
 				merged := append(append([]api.DoubanItem{}, now...), list...)
 				items.Set(merged)
 				a.HomeCache.Put(key, merged)
+				// 网格重建会回顶：滚到新加载的第一行保持阅读位置。
+				if a.OnPageLoaded != nil {
+					a.OnPageLoaded(start)
+				}
 			})
 		}()
 	}
@@ -393,15 +397,22 @@ func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], lo
 	const columns = 4
 	const gap = core.Points(14)
 	estimated := core.Points(160/0.7) + 44
+	gridRef := &core.Ref{}
+	// 分页完成后滚到新加载的第一行（Dynamic 重建 List 会回顶，这里补偿）。
+	a.OnPageLoaded = func(firstNew int) {
+		gridRef.ScrollToIndexAt(firstNew, 0, 0, false)
+		ClientLog("[home] 分页完成，滚回第 %d 行", firstNew)
+	}
 	return core.Dynamic(func(*core.Scope) core.Node {
 		key := catKey.Get() // track：切分类时重建 List
 		ClientLog("[home] posterGrid 装配 key=%s items=%d 条", key, len(items.Get()))
-		return buildPosterGrid(cx, a, items, loadMore, pageLoading, noMore, columns, gap, estimated)
+		return buildPosterGrid(cx, a, items, loadMore, pageLoading, noMore, columns, gap, estimated, gridRef)
 	})
 }
 
-func buildPosterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], loadMore func(), pageLoading, noMore *core.Signal[bool], columns int, gap, estimated core.Points) core.List {
+func buildPosterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], loadMore func(), pageLoading, noMore *core.Signal[bool], columns int, gap, estimated core.Points, gridRef *core.Ref) core.List {
 	return core.List{
+		Ref:           gridRef,
 		Count:         func() int { return len(items.Get()) },
 		Key:           func(i int) any { return items.Get()[i].URL },
 		NumColumns:    columns,

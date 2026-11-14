@@ -27,6 +27,8 @@ type App struct {
 
 	// HomeCache 首页分类数据缓存（跨页签保留）。
 	HomeCache homeCache
+	// OnPageLoaded 分页数据到达后的滚动补偿回调（posterGrid 设置）。
+	OnPageLoaded func(firstNew int)
 	// TestSetHomeItems 测试挂钩：Home 挂载时注册直接驱动网格数据的函数。
 	TestSetHomeItems func([]api.DoubanItem)
 
