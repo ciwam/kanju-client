@@ -6,3 +6,4 @@ app_test.go.bak
 .claude/launch.json
 cmd/kanju-web/web/dist/
 /kanju-web
+.exe
