@@ -142,6 +142,10 @@ func SetupForTest(cx *core.Scope, base string) *App {
 
 // Setup 在根 scope 上初始化信号与持久化状态。
 func Setup(cx *core.Scope) *App {
+	// 日志落盘到应用数据目录 logs/（在所有其它初始化之前，保证启动
+	// 段的日志也留痕）。InitFileLogs 幂等，空 dir 时静默跳过。
+	InitFileLogs(cx.DataDir())
+
 	// 优先启动进程内嵌后端：开箱即用，无需外部服务，也无需登录
 	// （NoAuth 虚拟 admin，见 backend_embed.go）。
 	// wasm 下 EmbeddedBackend 返回空地址：后端由跟随应用分发的
