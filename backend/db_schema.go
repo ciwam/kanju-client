@@ -123,6 +123,8 @@ func (s *Server) openDB(path string) error {
 	if dir := filepath.Dir(path); dir != "" {
 		_ = os.MkdirAll(dir, 0o755)
 	}
+	// 海报磁盘缓存与 DB 同级（posters/），生命周期一致。
+	setPosterCacheDir(path)
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		return err

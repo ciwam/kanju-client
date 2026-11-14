@@ -11,7 +11,8 @@ const historyRetentionDays = 90
 // startDBCleanupLoop 启动后台数据库清理任务：启动后立即执行一次，
 // 之后每天执行一次。清理内容包括：
 //   - 超过保留期的播放历史（favorite 是用户主动收藏，不自动删除）；
-//   - 已过期的可用性探测持久化缓存（avail_cache）。
+//   - 已过期的可用性探测持久化缓存（avail_cache）；
+//   - 海报磁盘缓存的超龄/超容条目（posters/）。
 func (s *Server) startDBCleanupLoop() {
 	go func() {
 		s.cleanupDB()
@@ -26,6 +27,7 @@ func (s *Server) startDBCleanupLoop() {
 func (s *Server) cleanupDB() {
 	s.cleanupOldHistory()
 	s.cleanupAvailCacheDB()
+	cleanupPosterCache()
 }
 
 // cleanupOldHistory 删除超过保留期的历史记录。cutoff 用 Go 生成的

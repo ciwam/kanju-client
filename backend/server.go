@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"fmt"
@@ -253,6 +254,13 @@ func (s *Server) handleProxyImage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", 403)
 		return
 	}
+	// 本地磁盘缓存命中：直接 serve，零上游流量（write-through 见 poster_cache.go）。
+	if p := posterCacheGet(rawURL); p != "" {
+		w.Header().Set("Content-Type", contentTypeOfPath(p))
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		http.ServeFile(w, r, p)
+		return
+	}
 	// 负缓存命中：已知这张图近期取不到，直接 404（客户端 <img> 静默占位）。
 	if imageFailGet(rawURL) {
 		http.Error(w, "not an image", 404)
@@ -297,10 +305,18 @@ func (s *Server) handleProxyImage(w http.ResponseWriter, r *http.Request) {
 			lastErr = fmt.Errorf("status=%d ct=%q", resp.StatusCode, ct)
 			continue
 		}
+		// 海报都远小于 10MB 上限：先读进内存，一次读取同时下发 + 落盘
+		// （body 只能读一次）。
+		data, readErr := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		resp.Body.Close()
+		if readErr != nil || len(data) == 0 {
+			lastErr = fmt.Errorf("read body: %v", readErr)
+			continue
+		}
 		w.Header().Set("Content-Type", ct)
 		w.Header().Set("Cache-Control", "public, max-age=86400")
-		_, _ = io.Copy(w, io.LimitReader(resp.Body, 10*1024*1024))
-		resp.Body.Close()
+		_, _ = w.Write(data)
+		posterCachePut(rawURL, ct, bytes.NewReader(data))
 		// 记下来，下次优先走这个图床，少做冗余重试
 		if hu, e := url.Parse(u); e == nil {
 			imageHostMu.Lock()
@@ -321,12 +337,18 @@ func (s *Server) handleProxyImage(w http.ResponseWriter, r *http.Request) {
 				pResp, err := (&http.Client{Timeout: 5 * time.Second, Transport: ssrfSafeTransport}).Do(posterReq)
 				if err == nil && pResp.StatusCode == http.StatusOK &&
 					strings.HasPrefix(pResp.Header.Get("Content-Type"), "image/") {
-					defer pResp.Body.Close()
-					w.Header().Set("Content-Type", pResp.Header.Get("Content-Type"))
-					w.Header().Set("Cache-Control", "public, max-age=86400")
-					_, _ = io.Copy(w, io.LimitReader(pResp.Body, 10*1024*1024))
-					logInfo("[proxy-image] 豆瓣图挂，TMDB 海报顶上: %q", title)
-					return
+					tmdbCT := pResp.Header.Get("Content-Type")
+					tmdbData, readErr := io.ReadAll(io.LimitReader(pResp.Body, 10*1024*1024))
+					pResp.Body.Close()
+					if readErr == nil && len(tmdbData) > 0 {
+						w.Header().Set("Content-Type", tmdbCT)
+						w.Header().Set("Cache-Control", "public, max-age=86400")
+						_, _ = w.Write(tmdbData)
+						// TMDB 兜底图同样落盘：按原始请求 URL 缓存，下次直接本地命中。
+						posterCachePut(rawURL, tmdbCT, bytes.NewReader(tmdbData))
+						logInfo("[proxy-image] 豆瓣图挂，TMDB 海报顶上: %q", title)
+						return
+					}
 				}
 				if pResp != nil {
 					pResp.Body.Close()
