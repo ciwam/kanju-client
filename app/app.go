@@ -3,14 +3,10 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"os"
 	"sync"
 
 	"kanju/client/api"
-
-	"kanju/backend"
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -113,49 +109,7 @@ var tabs = []Tab{
 	{ID: "home", Text: "首页", Icon: lucide.House},
 }
 
-// 嵌入后端的生命周期：整个进程一份，退出时随进程结束。
-var (
-	embedOnce sync.Once
-	embedAddr string
-	embedErr  error
-)
-
-// EmbeddedBackend 在进程内启动 kanju 服务（随机端口，数据库在应用数据目录）。
-// 幂等；返回实际监听地址（如 http://127.0.0.1:54321）。
-func EmbeddedBackend(cx *core.Scope) (string, error) {
-	embedOnce.Do(func() {
-		dir := cx.DataDir()
-		if dir == "" {
-			embedErr = fmt.Errorf("应用数据目录不可用")
-			return
-		}
-		opts := backend.ServeOptions{
-			// 空端口 = 自动分配，避免与用户可能在跑的外部 kanju 冲突。
-			DBPath: dir + "/kanju.db",
-			// 内嵌模式免登录：只绑 127.0.0.1，无对外暴露；鉴权全开时
-			// 用户每次打开 app 都要先输账号密码，没有意义。
-			NoAuth: true,
-			// 后端日志收进客户端的统一日志缓冲（设置页可看）。
-			LogOutput: BackendLogWriter(),
-			// TMDB key：环境变量（豆瓣风控时的第二数据源）。
-			TMDBKey: os.Getenv("TMDB_API_KEY"),
-			// 开启后端 debug 日志（请求路由+全链路计时）。
-			Debug: true,
-		}
-		addr, stop, err := backend.Start(opts)
-		if err != nil {
-			embedErr = err
-			return
-		}
-		embedAddr = "http://" + addr
-		// stop 闭包持有 srv/db；退出时由 OnQuit 调用优雅关停。
-		embeddedStop = stop
-		log.Printf("kanju embedded backend at %s (db: %s)", embedAddr, dir)
-	})
-	return embedAddr, embedErr
-}
-
-var embeddedStop func()
+// 嵌入后端的生命周期见 backend_embed.go（native）与 backend_web.go（wasm）。
 
 // SetupForTest 构造不读持久化的 App（nsgotest 用）。
 func SetupForTest(cx *core.Scope, base string) *App {
@@ -189,12 +143,19 @@ func SetupForTest(cx *core.Scope, base string) *App {
 // Setup 在根 scope 上初始化信号与持久化状态。
 func Setup(cx *core.Scope) *App {
 	// 优先启动进程内嵌后端：开箱即用，无需外部服务，也无需登录
-	// （NoAuth 虚拟 admin，见 EmbeddedBackend）。
+	// （NoAuth 虚拟 admin，见 backend_embed.go）。
+	// wasm 下 EmbeddedBackend 返回空地址：后端由跟随应用分发的
+	// kanju-web 原生程序提供，UI 走同源相对路径（空 base）。
 	defaultBase := "http://127.0.0.1:28088"
 	embedded := false
 	if addr, err := EmbeddedBackend(cx); err == nil {
-		defaultBase = addr
-		embedded = true
+		if addr == "" {
+			// wasm：同源直连，/api/* 由托管站点自身提供。
+			defaultBase = ""
+		} else {
+			defaultBase = addr
+			embedded = true
+		}
 	} else {
 		log.Printf("embedded backend failed to start: %v", err)
 	}
@@ -239,7 +200,8 @@ func Setup(cx *core.Scope) *App {
 		a.Server.Set(server)
 	}
 	// 内嵌后端免登录：直接以虚拟 admin 进入主界面。
-	if embedded && a.API.Base() == defaultBase {
+	// wasm 同理：kanju-web 后端程序单机运行，浏览器 UI 是唯一用户。
+	if embedded || a.API.Base() == "" {
 		a.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
 		return a
 	}

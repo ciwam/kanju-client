@@ -15,9 +15,10 @@
 #   run          清理 + 构建 + 运行（本机平台）
 #   macos        macos_arm64 的别名
 #   all          全部平台
+#   webapp       wasm UI 站点 + kanju-web 宿主（自托管：单二进制 = 后端 + Web 前端）
 #   macos_arm64 / macos_x64 / windows_x64 / windows_arm64
 #   linux_x64 / linux_arm64 / ios / ios_simulator
-#   android_arm64 / android_x64 / web
+#   android_arm64 / android_x64 / web（仅 wasm 站点，无后端宿主）
 #
 # 选项:
 #   --no-test    跳过 vet 与测试，直接构建
@@ -27,7 +28,7 @@
 set -euo pipefail
 
 usage() {
-    sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -37,6 +38,7 @@ cd "$(dirname "$0")"
 
 run_tests=true
 do_run=false
+build_webapp=false
 args=()
 for arg in "$@"; do
     case "$arg" in
@@ -44,6 +46,7 @@ for arg in "$@"; do
         --no-test) run_tests=false ;;
         run) do_run=true ;;
         macos) args+=(-target macos_arm64) ;;
+        webapp) build_webapp=true ;;
         all|macos_arm64|macos_x64|windows_x64|windows_arm64|linux_x64|linux_arm64|ios|ios_simulator|android_arm64|android_x64|web)
             args+=(-target "$arg") ;;
         *) args+=("$arg") ;;
@@ -91,8 +94,21 @@ if $do_run; then
     echo "==> nsgo build -run ${args[*]}"
     go tool nsgo build -run "${args[@]}"
 else
-    echo "==> nsgo build ${args[*]}"
-    go tool nsgo build "${args[@]}"
-    echo "==> 完成，产物在 dist/"
-    ls -d dist/*/ 2>/dev/null | tail -5
+    if $build_webapp; then
+        echo "==> 构建 Web 应用（wasm UI 站点 + kanju-web 宿主）"
+        site_tmp=$(mktemp -d)
+        trap 'rm -rf "$site_tmp"' EXIT
+        go tool nsgo build -target web -output "$site_tmp"
+        site_dir=$(find "$site_tmp" -maxdepth 1 -type d -name 'Kanju-*' | head -1)
+        rm -rf cmd/kanju-web/web/dist
+        mkdir -p cmd/kanju-web/web/dist
+        cp -R "$site_dir/." cmd/kanju-web/web/dist/
+        go build -ldflags "-s -w" -o dist/kanju-web ./cmd/kanju-web/
+        echo "==> 完成: dist/kanju-web（运行: dist/kanju-web [-port 28088] [-db path]）"
+    else
+        echo "==> nsgo build ${args[*]}"
+        go tool nsgo build "${args[@]}"
+        echo "==> 完成，产物在 dist/"
+        ls -d dist/*/ 2>/dev/null | tail -5
+    fi
 fi
