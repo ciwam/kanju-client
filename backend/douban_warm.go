@@ -129,6 +129,21 @@ func parseWarmKey(key string, typ, tag, sort, limit, start *string) bool {
 // 测试/未来多处触发时防重入）。
 var warmOnce sync.Mutex
 
+// refreshInFlight 同 key 在途刷新去重：SWR 与预热循环可能对同一分类
+// 并发触发，单飞避免重复打上游（滚动一页一个 SWR 曾致刷新风暴）。
+var refreshInFlight sync.Map // key -> bool
+
+// refreshDoubanCategoryOnce 带 in-flight 去重的刷新入口（SWR 用）：
+// 同 key 已有刷新在跑就直接放弃——稍后的巡检循环会兜底。
+func (s *Server) refreshDoubanCategoryOnce(dType, tag, sort, limit, start, prefer string) {
+	key := dType + "|" + tag + "|" + sort + "|" + limit + "|" + start
+	if _, loaded := refreshInFlight.LoadOrStore(key, true); loaded {
+		return
+	}
+	defer refreshInFlight.Delete(key)
+	s.refreshDoubanCategory(dType, tag, sort, limit, start, prefer)
+}
+
 // refreshDoubanCategory 拉一分类数据并写入两级缓存。返回是否拿到数据。
 func (s *Server) refreshDoubanCategory(dType, tag, sort, limit, start, prefer string) bool {
 	warmOnce.Lock()

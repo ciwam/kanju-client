@@ -343,8 +343,12 @@ func (s *Server) handleDouban(w http.ResponseWriter, r *http.Request) {
 		logInfoC(r.Context(), "douban list: key=%q store HIT %d items", cacheKey, len(cached))
 		doubanListCachePut(cacheKey, cached)
 		writeJSON(w, 200, map[string]any{"isSuccess": true, "data": cached})
-		// 顺手把旧数据回填上游链路刷新（stale-while-revalidate）。
-		go s.refreshDoubanCategory(dType, tag, sort, limit, start, prefer)
+		// stale-while-revalidate：仅当数据真正过期（超过持久缓存 TTL）
+		// 才后台刷新，且同 key 单飞——快速滚动分页每页都是 store HIT，
+		// 不过滤会起几十轮重复刷新打爆上游（曾致 warm 风暴 + 图片代理超时）。
+		if _, fresh := s.doubanStoreGetFresh(cacheKey); !fresh {
+			go s.refreshDoubanCategoryOnce(dType, tag, sort, limit, start, prefer)
+		}
 		return
 	}
 	// 无任何缓存（首次使用 / 预热未跑完）：同步走上游，避免首屏空转。

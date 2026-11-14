@@ -220,11 +220,42 @@ func (w *statusWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+// imageFailCache 图片代理负缓存：上游超时/全挂的 URL 短期内记住，期间
+// 直接 404 不再出网——一屏几十张图同时超时（TMDB 不通的网络环境）时，
+// 没有负缓存每次滚动都会把同样的超时重放一遍，既拖慢渲染又刷屏日志。
+var (
+	imageFailMu    sync.Mutex
+	imageFailCache = map[string]time.Time{}
+)
+
+const imageFailTTL = 5 * time.Minute
+
+func imageFailGet(rawURL string) bool {
+	imageFailMu.Lock()
+	defer imageFailMu.Unlock()
+	t, ok := imageFailCache[rawURL]
+	return ok && time.Since(t) < imageFailTTL
+}
+
+func imageFailPut(rawURL string) {
+	imageFailMu.Lock()
+	defer imageFailMu.Unlock()
+	if len(imageFailCache) > 500 { // 简单上限：超了整体重建
+		imageFailCache = map[string]time.Time{}
+	}
+	imageFailCache[rawURL] = time.Now()
+}
+
 func (s *Server) handleProxyImage(w http.ResponseWriter, r *http.Request) {
 	rawURL := r.URL.Query().Get("url")
 	if !isURLSafeForFetch(rawURL) {
 		logWarn("[proxy-image] 非法图片地址，已拒发 403: url=%s", rawURL)
 		http.Error(w, "forbidden", 403)
+		return
+	}
+	// 负缓存命中：已知这张图近期取不到，直接 404（客户端 <img> 静默占位）。
+	if imageFailGet(rawURL) {
+		http.Error(w, "not an image", 404)
 		return
 	}
 	// 豆瓣图床命中风控时，轮换到其它 imgN 主机重试（路径一致），并交替带/不带 Referer；
@@ -278,7 +309,8 @@ func (s *Server) handleProxyImage(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	logWarn("[proxy-image] 全部图床尝试失败，已拒发 404: url=%s err=%v", rawURL, lastErr)
+	imageFailPut(rawURL)
+	logWarn("[proxy-image] 全部图床尝试失败，已拒发 404（5 分钟内同 URL 不再重试）: url=%s err=%v", rawURL, lastErr)
 	// 豆瓣图床全挂：按片名（客户端随请求带 t= 参数）到 TMDB 检索替代海报。
 	if title := strings.TrimSpace(r.URL.Query().Get("t")); title != "" {
 		poster, ok := s.tmdbPosterFallback(title)
