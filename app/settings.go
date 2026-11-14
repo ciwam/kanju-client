@@ -1,12 +1,7 @@
 package app
 
 import (
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"kanju/client/theme"
 
@@ -119,39 +114,27 @@ func LogCard(cx *core.Scope) core.View {
 			return
 		}
 		ClientLog("[logs] 打开日志目录 %s", dir)
-		// nsgo 的 OpenURL 拒绝 file:// 协议（refusedSchemes）。
-		// open -R 在连续点击时会让 Finder 主队列 SIGABRT 崩溃（实测，
-		// 见 DiagnosticReports/Finder-*.ips），osascript reveal 稳定。
-		target := filepath.Join(dir, time.Now().Format("2006-01-02")+".log")
-		if _, err := os.Stat(target); err != nil {
-			// 当天文件还没生成时退回打开目录。
-			script := fmt.Sprintf(`tell application "Finder" to open (POSIX file %q as alias)`, dir)
-			if err := exec.Command("osascript", "-e", script).Start(); err != nil {
-				ClientLog("[logs] 打开目录失败: %v", err)
-			}
-			return
-		}
-		script := fmt.Sprintf(`tell application "Finder"
-  reveal (POSIX file %q as alias)
-  activate
-end tell`, target)
-		if err := exec.Command("osascript", "-e", script).Start(); err != nil {
-			ClientLog("[logs] 打开目录失败: %v", err)
-		}
+		openLogDir(dir)
+	}
+
+	logButtons := []core.Node{
+		ui.Button{Text: "复制", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: copyAll},
+		ui.Button{Text: "清空", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: clear},
+	}
+	if openLogDirAvailable {
+		// 桌面端专属：移动端无文件管理器概念，日志用复制带走。
+		logButtons = append([]core.Node{ui.Button{Text: "打开日志目录", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: openDir}}, logButtons...)
 	}
 
 	return theme.Card(cx,
 		core.View{
 			StyleFunc: func() core.Style { return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8} },
-			Children: []core.Node{
+			Children: append([]core.Node{
 				core.View{
 					StyleFunc: func() core.Style { return core.Style{FlexGrow: 1, FlexShrink: 1} },
 					Children:  []core.Node{theme.Title("运行日志", 14, ui.Semibold)},
 				},
-				ui.Button{Text: "打开日志目录", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: openDir},
-				ui.Button{Text: "复制", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: copyAll},
-				ui.Button{Text: "清空", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: clear},
-			},
+			}, logButtons...),
 		},
 		logView(cx, version),
 	)
