@@ -8,8 +8,6 @@ import (
 	"os"
 	"sync"
 
-	"github.com/nsgo-dev/nsgo/base"
-
 	"kanju/client/api"
 
 	"kanju/backend"
@@ -32,8 +30,6 @@ type App struct {
 	HomeCache homeCache
 	// OnPageLoaded 分页数据到达后的滚动补偿回调（posterGrid 设置）。
 	OnPageLoaded func(firstNew int)
-	// tmdbNoticeShown TMDB 兜底弹窗只提示一次。
-	tmdbNoticeShown bool
 	// 首页分类信号（Home 挂载时注册，用于状态查询/测试）。
 	homeKind  *core.Signal[string]
 	homeSub   *core.Signal[int]
@@ -278,18 +274,6 @@ func (a *App) PreferTMDB() string {
 func (a *App) SetPreferSource(cx *core.Scope, v string) {
 	a.PreferSourceSignal.Set(v)
 	ClientLog("[data] 数据源偏好切换为 %s", v)
-}
-
-// ShowTMDBNotice 弹窗告知当前数据来自 TMDB（豆瓣全通道不可用）。
-func (a *App) ShowTMDBNotice(cx *core.Scope) {
-	ClientLog("[data] 豆瓣不可用，当前使用 TMDB 数据源（评分体系不同）")
-	base.ShowAlertDialog(cx, base.AlertDialog{
-		Title:       "数据源已切换",
-		Description: "豆瓣接口暂时不可用，当前显示的是 TMDB 的影片数据。评分与豆瓣不同，恢复后将自动切回。",
-		Actions: []core.AlertAction{
-			{Label: "知道了", Role: core.AlertCancel},
-		},
-	}, nil)
 }
 
 // SaveAuth 持久化登录凭证。

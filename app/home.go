@@ -237,11 +237,6 @@ func Home(cx *core.Scope, a *App) core.Node {
 				items.Set(list)
 				a.HomeCache.Put(key, list)
 				noMore.Set(len(list) < pageLimit)
-				// 数据源是 TMDB（豆瓣全通道不可用）：弹窗提示一次。
-				if source == "tmdb" && !a.tmdbNoticeShown {
-					a.tmdbNoticeShown = true
-					a.ShowTMDBNotice(cx)
-				}
 			})
 		}
 		go attempt(0)
