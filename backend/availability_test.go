@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"testing"
 )
 
@@ -99,7 +100,7 @@ func TestChannelsOfEpisodesOf(t *testing.T) {
 
 func TestCheckSourceAvailabilityNoItems(t *testing.T) {
 	s := &Server{}
-	res := s.checkSourceAvailability(&SiteSource{Name: "x"}, nil)
+	res := s.checkSourceAvailability(context.Background(), &SiteSource{Name: "x"}, nil)
 	if !res.Available {
 		t.Fatalf("empty items should be treated as available (nothing to filter)")
 	}
@@ -112,7 +113,7 @@ func TestCheckSourceAvailabilityDetailBlocked(t *testing.T) {
 	s := &Server{}
 	source := &SiteSource{Name: "dead", SourceType: "json_api", BaseURL: "http://127.0.0.1:1"}
 	items := []map[string]any{{"url": "json_api://vod/1"}}
-	res := s.checkSourceAvailability(source, items)
+	res := s.checkSourceAvailability(context.Background(), source, items)
 	if res.Available {
 		t.Fatalf("expected unavailable when detail fetch is blocked")
 	}

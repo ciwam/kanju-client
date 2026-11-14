@@ -4,6 +4,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -123,6 +125,13 @@ func (e *Err) Error() string {
 // Unauthorized 是否 401（token 失效，应回到登录页）。
 func (e *Err) Unauthorized() bool { return e.Status == http.StatusUnauthorized }
 
+// newTraceID 生成 6 字节 hex 短 trace id，与后端 trace.go 的格式一致。
+func newTraceID() string {
+	b := make([]byte, 6)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 func (c *Client) newRequest(method, path string, body any) (*http.Request, error) {
 	var rd io.Reader
 	if body != nil {
@@ -136,6 +145,11 @@ func (c *Client) newRequest(method, path string, body any) (*http.Request, error
 	if err != nil {
 		return nil, err
 	}
+	// 每请求一个 trace id：请求头带给后端（后端日志同前缀），
+	// 存进 request context 供本端日志行取（见 traceOf）。
+	tid := newTraceID()
+	req.Header.Set("X-Trace-ID", tid)
+	req = req.WithContext(context.WithValue(req.Context(), traceKey{}, tid))
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -143,6 +157,20 @@ func (c *Client) newRequest(method, path string, body any) (*http.Request, error
 		req.Header.Set("Authorization", "Bearer "+t)
 	}
 	return req, nil
+}
+
+// traceKey 是 request context 里 trace id 的键（private 类型防跨包冲突）。
+type traceKey struct{}
+
+// traceOf 从 request 取 trace id；无 request（组装失败）返回 "-"。
+func traceOf(req *http.Request) string {
+	if req == nil {
+		return "-"
+	}
+	if v, ok := req.Context().Value(traceKey{}).(string); ok {
+		return v
+	}
+	return "-"
 }
 
 // doJSON 执行请求并解析信封（默认 10 秒超时）。
@@ -155,32 +183,33 @@ func (c *Client) doJSON(method, path string, body, out any) error {
 func (c *Client) doJSONTimeout(method, path string, body, out any, timeout time.Duration) error {
 	req, err := c.newRequest(method, path, body)
 	if err != nil {
-		c.logf("%s %s 组装失败: %v", method, path, err)
+		c.logf("[trace_id=-] %s %s 组装失败: %v", method, path, err)
 		return err
 	}
+	tid := traceOf(req)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	req = req.WithContext(ctx)
 	start := time.Now()
 	resp, err := c.http.Do(req)
 	if err != nil {
-		c.logf("%s %s 网络错误(%dms): %v", method, path, time.Since(start).Milliseconds(), err)
+		c.logf("[trace_id=%s] %s %s 网络错误(%dms): %v", tid, method, path, time.Since(start).Milliseconds(), err)
 		return err
 	}
 	defer resp.Body.Close()
 	elapsed := time.Since(start).Milliseconds()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
-		c.logf("%s %s 读响应失败(%dms): %v", method, path, elapsed, err)
+		c.logf("[trace_id=%s] %s %s 读响应失败(%dms): %v", tid, method, path, elapsed, err)
 		return err
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		c.logf("%s %s -> 401 未登录(%dms)", method, path, elapsed)
+		c.logf("[trace_id=%s] %s %s -> 401 未登录(%dms)", tid, method, path, elapsed)
 		c.fireUnauthorized()
 		return &Err{Status: resp.StatusCode, Msg: "未登录或登录已过期"}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		c.logf("%s %s -> HTTP %d(%dms): %s", method, path, resp.StatusCode, elapsed, firstString(raw, ""))
+		c.logf("[trace_id=%s] %s %s -> HTTP %d(%dms): %s", tid, method, path, resp.StatusCode, elapsed, firstString(raw, ""))
 		return &Err{Status: resp.StatusCode, Msg: firstString(raw, resp.Status)}
 	}
 	var env Envelope[json.RawMessage]
@@ -189,7 +218,7 @@ func (c *Client) doJSONTimeout(method, path string, body, out any, timeout time.
 		return &Err{Status: resp.StatusCode, Msg: "响应解析失败"}
 	}
 	if !env.IsSuccess {
-		c.logf("%s %s -> 业务失败(%dms): %s", method, path, elapsed, env.ErrorMsg)
+		c.logf("[trace_id=%s] %s %s -> 业务失败(%dms): %s", tid, method, path, elapsed, env.ErrorMsg)
 		return &Err{Status: resp.StatusCode, Msg: env.ErrorMsg}
 	}
 	if out != nil {
@@ -197,15 +226,15 @@ func (c *Client) doJSONTimeout(method, path string, body, out any, timeout time.
 		// data 为空时整体再解一次，两种形态都兼容。
 		if len(env.Data) > 0 {
 			if err := json.Unmarshal(env.Data, out); err != nil {
-				c.logf("%s %s -> %d data 解析失败(%dms)", method, path, resp.StatusCode, elapsed)
+				c.logf("[trace_id=%s] %s %s -> %d data 解析失败(%dms)", tid, method, path, resp.StatusCode, elapsed)
 				return &Err{Status: resp.StatusCode, Msg: "数据解析失败"}
 			}
 		} else if err := json.Unmarshal(raw, out); err != nil {
-			c.logf("%s %s -> %d 顶层解析失败(%dms)", method, path, resp.StatusCode, elapsed)
+			c.logf("[trace_id=%s] %s %s -> %d 顶层解析失败(%dms)", tid, method, path, resp.StatusCode, elapsed)
 			return &Err{Status: resp.StatusCode, Msg: "数据解析失败"}
 		}
 	}
-	c.logf("%s %s -> 200 OK(%dms)", method, path, elapsed)
+	c.logf("[trace_id=%s] %s %s -> 200 OK(%dms)", tid, method, path, elapsed)
 	return nil
 }
 
@@ -234,9 +263,10 @@ func (c *Client) Login(username, password string) (User, error) {
 		"username": username, "password": password,
 	})
 	if err != nil {
-		c.logf("POST /api/auth/login 组装失败: %v", err)
+		c.logf("[trace_id=-] POST /api/auth/login 组装失败: %v", err)
 		return User{}, err
 	}
+	tid := traceOf(req)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -244,22 +274,22 @@ func (c *Client) Login(username, password string) (User, error) {
 	resp, err := c.http.Do(req)
 	elapsed := time.Since(start).Milliseconds()
 	if err != nil {
-		c.logf("POST /api/auth/login 网络错误(%dms): %v", elapsed, err)
+		c.logf("[trace_id=%s] POST /api/auth/login 网络错误(%dms): %v", tid, elapsed, err)
 		return User{}, err
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		c.logf("POST /api/auth/login -> HTTP %d(%dms): %s", resp.StatusCode, elapsed, firstString(raw, ""))
+		c.logf("[trace_id=%s] POST /api/auth/login -> HTTP %d(%dms): %s", tid, resp.StatusCode, elapsed, firstString(raw, ""))
 		return User{}, &Err{Status: resp.StatusCode, Msg: firstString(raw, "登录失败")}
 	}
 	var env Envelope[User]
 	if err := json.Unmarshal(raw, &env); err != nil {
-		c.logf("POST /api/auth/login -> %d 解析失败(%dms)", resp.StatusCode, elapsed)
+		c.logf("[trace_id=%s] POST /api/auth/login -> %d 解析失败(%dms)", tid, resp.StatusCode, elapsed)
 		return User{}, &Err{Status: resp.StatusCode, Msg: "响应解析失败"}
 	}
 	if !env.IsSuccess {
-		c.logf("POST /api/auth/login -> 业务失败(%dms): %s", elapsed, env.ErrorMsg)
+		c.logf("[trace_id=%s] POST /api/auth/login -> 业务失败(%dms): %s", tid, elapsed, env.ErrorMsg)
 		return User{}, &Err{Status: resp.StatusCode, Msg: env.ErrorMsg}
 	}
 	token := ""
@@ -270,11 +300,11 @@ func (c *Client) Login(username, password string) (User, error) {
 		}
 	}
 	if token == "" {
-		c.logf("POST /api/auth/login -> 200 但缺少凭证(%dms)", elapsed)
+		c.logf("[trace_id=%s] POST /api/auth/login -> 200 但缺少凭证(%dms)", tid, elapsed)
 		return User{}, &Err{Status: resp.StatusCode, Msg: "登录响应缺少凭证"}
 	}
 	c.SetToken(token)
-	c.logf("POST /api/auth/login -> 200 OK(%dms) user=%s role=%s", elapsed, env.Data.Username, env.Data.Role)
+	c.logf("[trace_id=%s] POST /api/auth/login -> 200 OK(%dms) user=%s role=%s", tid, elapsed, env.Data.Username, env.Data.Role)
 	return env.Data, nil
 }
 
@@ -329,9 +359,11 @@ func (c *Client) DoubanListWithSource(kind, tag, sort string, limit, start int, 
 	if err != nil {
 		return nil, "", err
 	}
+	tid := traceOf(req)
 	start0 := time.Now()
 	resp, err := c.http.Do(req)
 	if err != nil {
+		c.logf("[trace_id=%s] GET /api/douban 网络错误(%dms): %v", tid, time.Since(start0).Milliseconds(), err)
 		return nil, "", err
 	}
 	defer resp.Body.Close()

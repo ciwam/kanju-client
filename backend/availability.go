@@ -429,13 +429,14 @@ func episodesOf(ch map[string]any) []map[string]any {
 // filter out sources that can NEITHER play NOR download). The probe is bounded
 // by availabilityCheckTimeout so a slow/dead source is filtered rather than
 // blocking the search stream.
-func (s *Server) checkSourceAvailability(source *SiteSource, items []map[string]any) availResult {
+func (s *Server) checkSourceAvailability(reqCtx context.Context, source *SiteSource, items []map[string]any) availResult {
 	if len(items) == 0 {
 		// Nothing to prove or disprove; don't filter a source with no hits.
-		logInfo("avail: source=%q items=0 -> skip (no items)", source.Name)
+		logInfoC(reqCtx, "avail: source=%q items=0 -> skip (no items)", source.Name)
 		return availResult{Available: true, Playable: true, Downloadable: true, Reason: "no items"}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), availabilityCheckTimeout)
+	// reqCtx 携带 trace（日志贯穿）；探测超时独立计时，避免上游慢源拖垮请求。
+	ctx, cancel := context.WithTimeout(reqCtx, availabilityCheckTimeout)
 	defer cancel()
 
 	var detailURL string
@@ -446,22 +447,22 @@ func (s *Server) checkSourceAvailability(source *SiteSource, items []map[string]
 		}
 	}
 	if detailURL == "" {
-		logInfo("avail: source=%q no detail url in search results -> UNAVAILABLE", source.Name)
+		logInfoC(reqCtx, "avail: source=%q no detail url in search results -> UNAVAILABLE", source.Name)
 		return availResult{Reason: "no detail url in search results"}
 	}
 
-	logInfo("avail: source=%q start sampling detailURL=%s", source.Name, detailURL)
+	logInfoC(reqCtx, "avail: source=%q start sampling detailURL=%s", source.Name, detailURL)
 	dStart := time.Now()
-	detail, err := s.getDetail(source, detailURL)
+	detail, err := s.getDetail(reqCtx, source, detailURL)
 	dDur := time.Since(dStart)
 	if err != nil {
-		logInfo("avail: source=%q detail FAILED dur=%s err=%v -> UNAVAILABLE", source.Name, dDur, err)
+		logInfoC(reqCtx, "avail: source=%q detail FAILED dur=%s err=%v -> UNAVAILABLE", source.Name, dDur, err)
 		return availResult{Reason: "detail fetch failed: " + err.Error()}
 	}
 	channels := channelsOf(detail)
-	logInfo("avail: source=%q detail dur=%s channels=%d", source.Name, dDur, len(channels))
+	logInfoC(reqCtx, "avail: source=%q detail dur=%s channels=%d", source.Name, dDur, len(channels))
 	if len(channels) == 0 {
-		logInfo("avail: source=%q detail returned no channels/episodes -> UNAVAILABLE", source.Name)
+		logInfoC(reqCtx, "avail: source=%q detail returned no channels/episodes -> UNAVAILABLE", source.Name)
 		return availResult{Reason: "detail returned no channels/episodes"}
 	}
 
@@ -490,17 +491,17 @@ loop:
 				continue
 			}
 			if ctx.Err() != nil {
-				logInfo("avail: source=%q ctx timeout after %d probes -> %v", source.Name, probed, played || downed)
+				logInfoC(reqCtx, "avail: source=%q ctx timeout after %d probes -> %v", source.Name, probed, played || downed)
 				return availResult{Available: played || downed, Playable: played, Downloadable: downed,
 					Reason: "availability check timed out", Metrics: best}
 			}
 			pStart := time.Now()
-			pr, perr := s.getPlayUrl(epURL)
+			pr, perr := s.getPlayUrl(reqCtx, epURL)
 			if perr != nil {
 				probed++
 				probedInChannel++
 				lastInfo = "play url resolve failed: " + perr.Error()
-				logInfo("avail: source=%q ch=%q ep=%q epURL=%s resolve FAILED dur=%s err=%v",
+				logInfoC(reqCtx, "avail: source=%q ch=%q ep=%q epURL=%s resolve FAILED dur=%s err=%v",
 					source.Name, chName, epTitle, epURL, time.Since(pStart), perr)
 				continue
 			}
@@ -510,7 +511,7 @@ loop:
 			probed++
 			probedInChannel++
 			lastInfo = probe.Info
-			logInfo("avail: source=%q ch=%q ep=%q epURL=%s -> media=%s type=%s dur=%s play=%v down=%v info=%q",
+			logInfoC(reqCtx, "avail: source=%q ch=%q ep=%q epURL=%s -> media=%s type=%s dur=%s play=%v down=%v info=%q",
 				source.Name, chName, epTitle, epURL, mediaURL, mediaType, time.Since(pStart), probe.Playable, probe.Downloadable, probe.Info)
 			if probe.Playable {
 				played = true
@@ -525,7 +526,7 @@ loop:
 				best = probe.Metrics
 			}
 			if played && downed {
-				logInfo("avail: source=%q VERDICT available=true (probe %d) play=%v down=%v speed=%dKB/s ttfb=%dms bitrate=%dKbps",
+				logInfoC(reqCtx, "avail: source=%q VERDICT available=true (probe %d) play=%v down=%v speed=%dKB/s ttfb=%dms bitrate=%dKbps",
 					source.Name, probed, played, downed, best.SpeedKBps, best.TTFBMs, best.BitrateKBps)
 				return availResult{Available: true, Playable: true, Downloadable: true, Reason: "ok", Metrics: best}
 			}
@@ -539,9 +540,9 @@ loop:
 	reason := "ok"
 	if !available {
 		reason = "unplayable & undownloadable: " + lastInfo
-		logInfo("avail: source=%q VERDICT available=false play=%v down=%v reason=%q", source.Name, played, downed, reason)
+		logInfoC(reqCtx, "avail: source=%q VERDICT available=false play=%v down=%v reason=%q", source.Name, played, downed, reason)
 	} else {
-		logInfo("avail: source=%q VERDICT available=true (probe %d) play=%v down=%v speed=%dKB/s ttfb=%dms",
+		logInfoC(reqCtx, "avail: source=%q VERDICT available=true (probe %d) play=%v down=%v speed=%dKB/s ttfb=%dms",
 			source.Name, probed, played, downed, best.SpeedKBps, best.TTFBMs)
 	}
 	return availResult{Available: available, Playable: played, Downloadable: downed, Reason: reason, Metrics: best}
@@ -651,7 +652,7 @@ func (s *Server) storeAvailCache(key string, e availCacheEntry) {
 // probing on a cache miss. Caching by source name means repeated searches
 // across different films don't re-validate the same source's link structure,
 // which is consistent per source and keeps upstream load and latency low.
-func (s *Server) cachedAvailability(source *SiteSource, items []map[string]any) availResult {
+func (s *Server) cachedAvailability(ctx context.Context, source *SiteSource, items []map[string]any) availResult {
 	entryOf := func(e availCacheEntry) availResult {
 		return availResult{Available: e.available, Playable: e.playable,
 			Downloadable: e.downloadable, Reason: e.reason, Metrics: e.metrics}
@@ -672,7 +673,7 @@ func (s *Server) cachedAvailability(source *SiteSource, items []map[string]any) 
 		return entryOf(e)
 	}
 
-	res := s.checkSourceAvailability(source, items)
+	res := s.checkSourceAvailability(ctx, source, items)
 	ttl := availabilitySuccessTTL
 	if !res.Available {
 		ttl = availabilityFailureTTL

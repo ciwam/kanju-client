@@ -477,7 +477,7 @@ func titlesMatch(a, b string) bool {
 
 // findPosterByTitle 在已启用的资源站中按片名检索替代海报。并发检索、首个命中即返回，
 // 失败（全部未命中）返回 ("", false)。结果按片名缓存（含负缓存）。
-func (s *Server) findPosterByTitle(title string) (string, bool) {
+func (s *Server) findPosterByTitle(ctx context.Context, title string) (string, bool) {
 	if title == "" {
 		return "", false
 	}
@@ -509,7 +509,7 @@ func (s *Server) findPosterByTitle(title string) (string, bool) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			res, serr := s.search(src, title)
+			res, serr := s.search(ctx, src, title)
 			if serr != nil {
 				ch <- posterResult{}
 				return
@@ -559,7 +559,7 @@ func (s *Server) handlePoster(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]any{"poster": ""})
 		return
 	}
-	poster, ok := s.findPosterByTitle(title)
+	poster, ok := s.findPosterByTitle(r.Context(), title)
 	if !ok {
 		writeJSON(w, 404, map[string]any{"poster": ""})
 		return

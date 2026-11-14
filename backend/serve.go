@@ -170,7 +170,7 @@ func bind(opts ServeOptions) (*running, error) {
 	// 榜单预热：首次启动拉全分类进 SQLite，之后按 TTL 巡检刷新。
 	s.startDoubanWarmLoop()
 
-	mux := securityHeaders(gzipMiddleware(s.cors(s.authGate(s.routes()))))
+	mux := securityHeaders(gzipMiddleware(s.cors(traceMiddleware(s.authGate(s.routes())))))
 	srv := &http.Server{
 		Addr:           ":" + port,
 		Handler:        mux,

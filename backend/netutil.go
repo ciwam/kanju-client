@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -314,7 +315,7 @@ func (s *Server) handleDouban(w http.ResponseWriter, r *http.Request) {
 	// returning one card per unique film (deduplicated by douban id), so the
 	// search page can navigate to /subject/:id just like the homepage grid.
 	if kw := strings.TrimSpace(q.Get("q")); kw != "" {
-		s.handleDoubanSearch(w, kw)
+		s.handleDoubanSearch(r.Context(), w, kw)
 		return
 	}
 	dType := q.Get("type")
@@ -334,12 +335,12 @@ func (s *Server) handleDouban(w http.ResponseWriter, r *http.Request) {
 	//   2. SQLite 持久缓存（预热循环维护，应用冷启动即有全量数据）。
 	cacheKey := dType + "|" + tag + "|" + sort + "|" + limit + "|" + start
 	if cached, ok := doubanListCacheGet(cacheKey); ok {
-		logInfo("douban list: key=%q cache HIT %d items", cacheKey, len(cached))
+		logInfoC(r.Context(), "douban list: key=%q cache HIT %d items", cacheKey, len(cached))
 		writeJSON(w, 200, map[string]any{"isSuccess": true, "data": cached})
 		return
 	}
 	if cached, ok := s.doubanStoreGet(cacheKey); ok {
-		logInfo("douban list: key=%q store HIT %d items", cacheKey, len(cached))
+		logInfoC(r.Context(), "douban list: key=%q store HIT %d items", cacheKey, len(cached))
 		doubanListCachePut(cacheKey, cached)
 		writeJSON(w, 200, map[string]any{"isSuccess": true, "data": cached})
 		// 顺手把旧数据回填上游链路刷新（stale-while-revalidate）。
@@ -461,14 +462,14 @@ func doubanRexxarList(dType, tag, limit, start string) ([]map[string]any, bool) 
 //  3. 站源关键词搜索（全部启用站源聚合，见 searchSiteSources）
 //
 // 结果按关键词缓存（5 分钟 TTL），风控期间重复搜索命中缓存仍有结果。
-func (s *Server) handleDoubanSearch(w http.ResponseWriter, keyword string) {
+func (s *Server) handleDoubanSearch(ctx context.Context, w http.ResponseWriter, keyword string) {
 	keyword = strings.TrimSpace(keyword)
 	if keyword == "" {
 		writeJSON(w, 200, fail("搜索词不能为空"))
 		return
 	}
 	if cached, ok := doubanSearchCacheGet(keyword); ok {
-		logInfo("douban search: keyword=%q cache HIT results=%d", keyword, len(cached))
+		logInfoC(ctx, "douban search: keyword=%q cache HIT results=%d", keyword, len(cached))
 		writeJSON(w, 200, map[string]any{"isSuccess": true, "data": cached})
 		return
 	}
@@ -477,7 +478,7 @@ func (s *Server) handleDoubanSearch(w http.ResponseWriter, keyword string) {
 	// 1) suggest JSON 接口
 	if items, ok := doubanSuggest(keyword); ok {
 		list = dedupeDouban(items)
-		logInfo("douban search: keyword=%q via suggest results=%d", keyword, len(list))
+		logInfoC(ctx, "douban search: keyword=%q via suggest results=%d", keyword, len(list))
 		if len(list) > 0 {
 			doubanSearchCachePut(keyword, list)
 			writeJSON(w, 200, map[string]any{"isSuccess": true, "data": list})
@@ -487,14 +488,14 @@ func (s *Server) handleDoubanSearch(w http.ResponseWriter, keyword string) {
 	// 2) 网页搜索页抓取（suggest 风控/空结果时的降级）
 	if items, ok := doubanSearchHTML(keyword); ok && len(items) > 0 {
 		list = dedupeDouban(items)
-		logInfo("douban search: keyword=%q via html results=%d", keyword, len(list))
+		logInfoC(ctx, "douban search: keyword=%q via html results=%d", keyword, len(list))
 		doubanSearchCachePut(keyword, list)
 		writeJSON(w, 200, map[string]any{"isSuccess": true, "data": list})
 		return
 	}
 	// 3) 站源聚合搜索兜底（豆瓣完全不可用时的最后手段）
-	if items, ok := s.searchSiteSources(keyword); ok && len(items) > 0 {
-		logInfo("douban search: keyword=%q via sites results=%d", keyword, len(items))
+	if items, ok := s.searchSiteSources(ctx, keyword); ok && len(items) > 0 {
+		logInfoC(ctx, "douban search: keyword=%q via sites results=%d", keyword, len(items))
 		doubanSearchCachePut(keyword, items)
 		writeJSON(w, 200, map[string]any{"isSuccess": true, "data": items})
 		return
@@ -598,7 +599,7 @@ func doubanSearchHTML(keyword string) ([]map[string]any, bool) {
 
 // searchSiteSources 对所有启用站源做关键词搜索并聚合结果（去重）。
 // 豆瓣完全不可用时的最后兜底：结果卡片直接可进站源详情页播放。
-func (s *Server) searchSiteSources(keyword string) ([]map[string]any, bool) {
+func (s *Server) searchSiteSources(ctx context.Context, keyword string) ([]map[string]any, bool) {
 	sources, err := s.getActiveSiteSources()
 	if err != nil || len(sources) == 0 {
 		return nil, false
@@ -616,7 +617,7 @@ func (s *Server) searchSiteSources(keyword string) ([]map[string]any, bool) {
 		go func(source *SiteSource) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			res, e := s.search(source, keyword)
+			res, e := s.search(ctx, source, keyword)
 			if e != nil {
 				ch <- siteResult{}
 				return

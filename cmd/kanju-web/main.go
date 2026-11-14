@@ -56,10 +56,12 @@ func main() {
 		DBPath:   *db,
 		StaticFS: site,
 		// 单机自托管：浏览器 UI 是唯一用户，免登录（虚拟 admin）。
-		NoAuth:   true,
-		Public:   true, // 监听 0.0.0.0，方便局域网其他设备访问
-		TMDBKey:  os.Getenv("TMDB_API_KEY"),
+		NoAuth:    true,
+		Public:    true, // 监听 0.0.0.0，方便局域网其他设备访问
+		TMDBKey:   os.Getenv("TMDB_API_KEY"),
 		LogOutput: os.Stderr,
+		// 调试期与桌面端对齐：全链路计时日志，日志页可见完整前后端视图。
+		Debug: true,
 	}
 	addr, stop, err := backend.Start(opts)
 	if err != nil {

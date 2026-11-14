@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
@@ -43,6 +44,27 @@ func debugEnabled() bool { return debugMode }
 // logInfo/logWarn (gated by --debug) so release builds don't flood.
 func logPrint(format string, args ...any) {
 	defaultLogger.Info(fmt.Sprintf(format, args...))
+}
+
+// logInfoC/logWarnC/logErrorC 是带 context 的变体：日志行带
+// [trace_id] 前缀，从请求 context 取（见 trace.go）。无 trace 的
+// 后台任务（预热/清理循环）用无 C 后缀的原函数。
+func logInfoC(ctx context.Context, format string, args ...any) {
+	if !debugMode {
+		return
+	}
+	defaultLogger.Info(tracePrefix(ctx) + fmt.Sprintf(format, args...))
+}
+
+func logWarnC(ctx context.Context, format string, args ...any) {
+	if !debugMode {
+		return
+	}
+	defaultLogger.Warn(tracePrefix(ctx) + fmt.Sprintf(format, args...))
+}
+
+func logErrorC(ctx context.Context, format string, args ...any) {
+	defaultLogger.Error(tracePrefix(ctx) + fmt.Sprintf(format, args...))
 }
 
 func logInfo(format string, args ...any) {

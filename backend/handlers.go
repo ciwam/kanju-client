@@ -128,7 +128,7 @@ func (s *Server) handleSearchStream(w http.ResponseWriter, r *http.Request) {
 		return true
 	}
 
-	logInfo("search/stream: keyword=%q fallback=%q activeSources=%d", keyword, fallback, len(sources))
+	logInfoC(r.Context(), "search/stream: keyword=%q fallback=%q activeSources=%d", keyword, fallback, len(sources))
 
 	if len(sources) == 0 {
 		send("meta", map[string]any{"total": 0, "keyword": keyword})
@@ -141,6 +141,9 @@ func (s *Server) handleSearchStream(w http.ResponseWriter, r *http.Request) {
 	// 慢源探测期间连接可能长时间无数据，需心跳保活（见函数注释）。
 	stopHeartbeat := startSearchStreamHeartbeat(r.Context(), flusher, w)
 	defer stopHeartbeat()
+
+	// trace 随 ctx 进每个源的 goroutine：一个搜索的所有源日志共享同一 id。
+	ctx := r.Context()
 
 	type sres struct {
 		name         string
@@ -164,18 +167,18 @@ func (s *Server) handleSearchStream(w http.ResponseWriter, r *http.Request) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			st := time.Now()
-			res, e := s.search(source, keyword)
+			res, e := s.search(ctx, source, keyword)
 			matched := keyword
 			// Per-source title fallback: if the CJK title yields nothing but a
 			// cleaner title was supplied, retry with it (mirrors the old
 			// client-side retry so we keep one stream instead of two).
 			if e == nil && len(dataArray(res)) == 0 && fallback != "" && fallback != keyword {
-				res, e = s.search(source, fallback)
+				res, e = s.search(ctx, source, fallback)
 				matched = fallback
 			}
 			dur := time.Since(st)
 			if e != nil {
-				logWarn("search/stream source=%q FAILED dur=%s err=%v", source.Name, dur, e)
+				logWarnC(ctx, "search/stream source=%q FAILED dur=%s err=%v", source.Name, dur, e)
 				ch <- sres{name: source.Name, dur: dur, err: e.Error()}
 				return
 			}
@@ -183,7 +186,7 @@ func (s *Server) handleSearchStream(w http.ResponseWriter, r *http.Request) {
 			for _, it := range items {
 				it["sourceName"] = source.Name
 			}
-			logInfo("search/stream source=%q done dur=%s results=%d matched=%q", source.Name, dur, len(items), matched)
+			logInfoC(ctx, "search/stream source=%q done dur=%s results=%d matched=%q", source.Name, dur, len(items), matched)
 
 			// Availability gate: a source that is "searchable but dead" (its
 			// episodes can neither play nor download) must be filtered out before
@@ -192,16 +195,16 @@ func (s *Server) handleSearchStream(w http.ResponseWriter, r *http.Request) {
 			// "unavailable" marker instead of the items so the client hides it.
 			var metrics mediaMetrics
 			if availabilityCheckEnabled && len(items) > 0 {
-				ar := s.cachedAvailability(source, items)
+				ar := s.cachedAvailability(ctx, source, items)
 				metrics = ar.Metrics
 				if !ar.Available {
-					logWarn("search/stream source=%q AVAILABILITY FAILED play=%v down=%v dur=%s reason=%s",
+					logWarnC(ctx, "search/stream source=%q AVAILABILITY FAILED play=%v down=%v dur=%s reason=%s",
 						source.Name, ar.Playable, ar.Downloadable, dur, ar.Reason)
 					ch <- sres{name: source.Name, dur: dur, matched: matched, unavailable: true,
 						playable: ar.Playable, downloadable: ar.Downloadable, reason: ar.Reason, metrics: metrics}
 					return
 				}
-				logInfo("search/stream source=%q AVAILABILITY OK play=%v down=%v speed=%dKB/s ttfb=%dms bitrate=%dKbps",
+				logInfoC(ctx, "search/stream source=%q AVAILABILITY OK play=%v down=%v speed=%dKB/s ttfb=%dms bitrate=%dKbps",
 					source.Name, ar.Playable, ar.Downloadable, metrics.SpeedKBps, metrics.TTFBMs, metrics.BitrateKBps)
 			}
 
@@ -282,28 +285,29 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 	detailURL := getStr(m, "url")
 	sourceName := getStrDefault(m, "sourceName", "")
 	title := getStr(m, "title")
+	ctx := r.Context()
 	t0 := time.Now()
-	logInfo("detail: start url=%s sourceName=%q title=%q", detailURL, sourceName, title)
+	logInfoC(ctx, "detail: start url=%s sourceName=%q title=%q", detailURL, sourceName, title)
 	sources, err := s.getActiveSiteSources()
 	if err != nil {
 		writeJSON(w, 200, fail("获取站源失败"))
 		return
 	}
-	logInfo("detail: activeSources=%d prepareDur=%s", len(sources), time.Since(t0))
+	logInfoC(ctx, "detail: activeSources=%d prepareDur=%s", len(sources), time.Since(t0))
 
 	if sourceName != "" {
 		for _, source := range sources {
 			if source.Name == sourceName {
 				st := time.Now()
-				res, e := s.getDetail(source, detailURL)
+				res, e := s.getDetail(ctx, source, detailURL)
 				dur := time.Since(st)
 				if e != nil {
-					logWarn("detail source=%q FAILED dur=%s err=%v", source.Name, dur, e)
+					logWarnC(ctx, "detail source=%q FAILED dur=%s err=%v", source.Name, dur, e)
 					writeJSON(w, 200, fail("获取详情失败: "+e.Error()))
 					return
 				}
 				cnt := channelCount(res)
-				logInfo("detail source=%q done dur=%s channels=%d", source.Name, dur, cnt)
+				logInfoC(ctx, "detail source=%q done dur=%s channels=%d", source.Name, dur, cnt)
 				if isSuccessWithData(res) {
 					if ch, ok := res["channels"].([]any); ok {
 						for _, c := range ch {
@@ -325,10 +329,10 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 	anySuccess := false
 	for _, source := range sources {
 		st := time.Now()
-		res, e := s.getDetail(source, detailURL)
+		res, e := s.getDetail(ctx, source, detailURL)
 		dur := time.Since(st)
 		if e != nil {
-			logWarn("detail source=%q FAILED dur=%s err=%v", source.Name, dur, e)
+			logWarnC(ctx, "detail source=%q FAILED dur=%s err=%v", source.Name, dur, e)
 			continue
 		}
 		cnt := 0
@@ -363,7 +367,7 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 			//      去掉「-…-」副标题段 → 主标题，每级仍过 titlesMatch。
 			sst := time.Now()
 			for _, kw := range fallbackKeywords(title) {
-				sres, se := s.search(source, kw)
+				sres, se := s.search(ctx, source, kw)
 				if se != nil {
 					break // 站源搜索本身失败，不再换关键词重试
 				}
@@ -372,7 +376,7 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 					if !titlesMatch(getMapStr(item, "title"), title) {
 						continue
 					}
-					dres, de := s.getDetail(source, getMapStr(item, "url"))
+					dres, de := s.getDetail(ctx, source, getMapStr(item, "url"))
 					if de == nil && dres != nil {
 						for _, cm := range channelsOf(dres) {
 							cm["_sourceName"] = source.Name
@@ -398,9 +402,9 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 					break // 本级关键词已命中，不再简化
 				}
 			}
-			logInfo("detail source=%q fallback(title→detail) dur=%s channels=%d", source.Name, time.Since(sst), cnt)
+			logInfoC(ctx, "detail source=%q fallback(title→detail) dur=%s channels=%d", source.Name, time.Since(sst), cnt)
 		}
-		logInfo("detail source=%q done dur=%s channels=%d", source.Name, dur, cnt)
+		logInfoC(ctx, "detail source=%q done dur=%s channels=%d", source.Name, dur, cnt)
 	}
 	merged := map[string]any{"isSuccess": anySuccess, "channels": allChannels}
 	if cover != "" {
@@ -409,7 +413,7 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 	if intro != "" {
 		merged["intro"] = intro
 	}
-	logInfo("detail done: channels=%d dur=%s", len(allChannels), time.Since(t0))
+	logInfoC(ctx, "detail done: channels=%d dur=%s", len(allChannels), time.Since(t0))
 	writeJSON(w, 200, merged)
 }
 
@@ -420,22 +424,23 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	playURL := getStr(m, "url")
+	ctx := r.Context()
 	t0 := time.Now()
-	logInfo("play: start url=%s", playURL)
+	logInfoC(ctx, "play: start url=%s", playURL)
 	// 命中缓存直接返回，避免同一选集反复抓取上游播放页（仅缓存成功结果）
 	if cached, ok := playURLCache.get(playURL); ok {
-		logInfo("play: cache HIT url=%s dur=%s type=%v", playURL, time.Since(t0), cached["type"])
+		logInfoC(ctx, "play: cache HIT url=%s dur=%s type=%v", playURL, time.Since(t0), cached["type"])
 		writeJSON(w, 200, cached)
 		return
 	}
-	res, e := s.getPlayUrl(playURL)
+	res, e := s.getPlayUrl(ctx, playURL)
 	if e != nil {
-		logWarn("play FAILED url=%s dur=%s err=%v", playURL, time.Since(t0), e)
+		logWarnC(ctx, "play FAILED url=%s dur=%s err=%v", playURL, time.Since(t0), e)
 		writeJSON(w, 200, fail("获取播放地址失败"))
 		return
 	}
 	playURLCache.put(playURL, res)
-	logInfo("play done url=%s dur=%s type=%v", playURL, time.Since(t0), res["type"])
+	logInfoC(ctx, "play done url=%s dur=%s type=%v", playURL, time.Since(t0), res["type"])
 	writeJSON(w, 200, res)
 }
 

@@ -154,13 +154,13 @@ func isURLSafeForFetch(rawURL string) bool {
 // cover/poster on screen) no timing logs are emitted, to avoid flooding the
 // dev log. Network timing is always captured and logged when debug is on and
 // silent is false — this is the core signal for diagnosing slow play-source
-// searches.
-func fetchPage(rawURL, ua, cs string, silent bool) (string, error) {
+// searches. ctx 只用于日志 trace（X-Trace-ID 贯穿，见 trace.go）。
+func fetchPage(ctx context.Context, rawURL, ua, cs string, silent bool) (string, error) {
 	if !isURLSafeForFetch(rawURL) {
 		return "", fmt.Errorf("URL blocked by security policy: %s", rawURL)
 	}
 	if debugEnabled() && !silent {
-		logInfo("fetch → %s", rawURL)
+		logInfoC(ctx, "fetch → %s", rawURL)
 	}
 	start := time.Now()
 	client := sharedFetchClient
@@ -172,7 +172,7 @@ func fetchPage(rawURL, ua, cs string, silent bool) (string, error) {
 	resp, err := client.Do(req)
 	if err != nil {
 		if debugEnabled() && !silent {
-			logInfo("fetch ✗ %s dur=%s err=%v", rawURL, time.Since(start), err)
+			logInfoC(ctx, "fetch ✗ %s dur=%s err=%v", rawURL, time.Since(start), err)
 		}
 		return "", err
 	}
@@ -182,12 +182,12 @@ func fetchPage(rawURL, ua, cs string, silent bool) (string, error) {
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchBodyBytes))
 	if err != nil {
 		if debugEnabled() && !silent {
-			logInfo("fetch ✗ %s dur=%s readErr=%v", rawURL, time.Since(start), err)
+			logInfoC(ctx, "fetch ✗ %s dur=%s readErr=%v", rawURL, time.Since(start), err)
 		}
 		return "", err
 	}
 	if debugEnabled() && !silent {
-		logInfo("fetch ✓ %s dur=%s status=%d bytes=%d", rawURL, time.Since(start), resp.StatusCode, len(raw))
+		logInfoC(ctx, "fetch ✓ %s dur=%s status=%d bytes=%d", rawURL, time.Since(start), resp.StatusCode, len(raw))
 	}
 	// 非 2xx 视为抓取失败（资源下架时上游普遍返回 404 + 风格化错误页）。
 	// 调用方不应拿着错误页继续正则提取/iframe 兜底。
@@ -301,14 +301,14 @@ func resolveURL(basePageURL, prefix, relative string) string {
 
 // ---- search ----
 
-func (s *Server) search(source *SiteSource, keyword string) (map[string]any, error) {
+func (s *Server) search(ctx context.Context, source *SiteSource, keyword string) (map[string]any, error) {
 	if source.SourceType == "json_api" {
-		return s.searchViaJsonApi(source, keyword)
+		return s.searchViaJsonApi(ctx, source, keyword)
 	}
-	return s.searchViaHtml(source, keyword)
+	return s.searchViaHtml(ctx, source, keyword)
 }
 
-func (s *Server) searchViaHtml(source *SiteSource, keyword string) (map[string]any, error) {
+func (s *Server) searchViaHtml(ctx context.Context, source *SiteSource, keyword string) (map[string]any, error) {
 	searchURL := source.SearchURL
 	if searchURL == "" {
 		return fail("未配置搜索地址"), nil
@@ -321,7 +321,7 @@ func (s *Server) searchViaHtml(source *SiteSource, keyword string) (map[string]a
 	if cs == "" {
 		cs = "utf-8"
 	}
-	htmlText, err := fetchPage(u, source.UserAgent, cs, false)
+	htmlText, err := fetchPage(ctx, u, source.UserAgent, cs, false)
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +355,7 @@ func (s *Server) searchViaHtml(source *SiteSource, keyword string) (map[string]a
 	return map[string]any{"isSuccess": true, "data": results}, nil
 }
 
-func (s *Server) searchViaJsonApi(source *SiteSource, keyword string) (map[string]any, error) {
+func (s *Server) searchViaJsonApi(ctx context.Context, source *SiteSource, keyword string) (map[string]any, error) {
 	searchURL := source.SearchURL
 	if searchURL == "" {
 		return fail("未配置搜索地址"), nil
@@ -365,7 +365,7 @@ func (s *Server) searchViaJsonApi(source *SiteSource, keyword string) (map[strin
 	if cs == "" {
 		cs = "utf-8"
 	}
-	text, err := fetchPage(u, source.UserAgent, cs, false)
+	text, err := fetchPage(ctx, u, source.UserAgent, cs, false)
 	if err != nil {
 		return nil, err
 	}
@@ -392,24 +392,24 @@ func (s *Server) searchViaJsonApi(source *SiteSource, keyword string) (map[strin
 
 // ---- detail ----
 
-func (s *Server) getDetail(source *SiteSource, detailURL string) (map[string]any, error) {
+func (s *Server) getDetail(ctx context.Context, source *SiteSource, detailURL string) (map[string]any, error) {
 	if strings.HasPrefix(detailURL, "json_api://vod/") {
 		vodID := strings.TrimPrefix(detailURL, "json_api://vod/")
-		return s.getDetailViaJsonApi(source, vodID)
+		return s.getDetailViaJsonApi(ctx, source, vodID)
 	}
 	// json_api 类型站源直接传入 detailURL（即 vod_id）即可
 	if source.SourceType == "json_api" {
-		return s.getDetailViaJsonApi(source, detailURL)
+		return s.getDetailViaJsonApi(ctx, source, detailURL)
 	}
-	return s.getDetailViaHtml(source, detailURL)
+	return s.getDetailViaHtml(ctx, source, detailURL)
 }
 
-func (s *Server) getDetailViaHtml(source *SiteSource, detailURL string) (map[string]any, error) {
+func (s *Server) getDetailViaHtml(ctx context.Context, source *SiteSource, detailURL string) (map[string]any, error) {
 	cs := source.ReqCharset
 	if cs == "" {
 		cs = "utf-8"
 	}
-	htmlText, err := fetchPage(detailURL, source.UserAgent, cs, false)
+	htmlText, err := fetchPage(ctx, detailURL, source.UserAgent, cs, false)
 	if err != nil {
 		return nil, err
 	}
@@ -482,7 +482,7 @@ func (s *Server) getDetailViaHtml(source *SiteSource, detailURL string) (map[str
 	return result, nil
 }
 
-func (s *Server) getDetailViaJsonApi(source *SiteSource, vodID string) (map[string]any, error) {
+func (s *Server) getDetailViaJsonApi(ctx context.Context, source *SiteSource, vodID string) (map[string]any, error) {
 	// vodID 必须是纯数字：json_api 的 ids 参数按数字解析。把豆瓣 URL 等
 	// 非法值透传时，部分站源会从 URL 里抽出数字片段（如 subject/36837352/
 	// 的 36837352），返回站内同 ID 的无关影片（几百上千集）冒充详情，
@@ -502,7 +502,7 @@ func (s *Server) getDetailViaJsonApi(source *SiteSource, vodID string) (map[stri
 	if cs == "" {
 		cs = "utf-8"
 	}
-	text, err := fetchPage(u, source.UserAgent, cs, false)
+	text, err := fetchPage(ctx, u, source.UserAgent, cs, false)
 	if err != nil {
 		return nil, err
 	}
@@ -734,8 +734,8 @@ func validateMediaReachable(rawURL string) bool {
 	return true
 }
 
-func (s *Server) getPlayUrl(playURL string) (map[string]any, error) {
-	logInfo("play resolve: url=%s", playURL)
+func (s *Server) getPlayUrl(ctx context.Context, playURL string) (map[string]any, error) {
+	logInfoC(ctx, "play resolve: url=%s", playURL)
 	// 站源聚合搜索（豆瓣降级）返回的 json_api://vod/<id> 伪协议地址：
 	// 先按详情解析出第一个可播放的选集，再走正常解析流程。
 	if strings.HasPrefix(playURL, "json_api://vod/") {
@@ -745,15 +745,15 @@ func (s *Server) getPlayUrl(playURL string) (map[string]any, error) {
 			return nil, fmt.Errorf("获取站源失败")
 		}
 		for _, source := range sources {
-			detail, e := s.getDetailViaJsonApi(source, vodID)
+			detail, e := s.getDetailViaJsonApi(ctx, source, vodID)
 			if e != nil {
 				continue
 			}
 			for _, ch := range channelsOf(detail) {
 				for _, ep := range episodesOf(ch) {
 					if u := getMapStr(ep, "url"); u != "" {
-						logInfo("play resolve(json_api): vod=%s first ep url=%s", vodID, u)
-						return s.getPlayUrl(u)
+						logInfoC(ctx, "play resolve(json_api): vod=%s first ep url=%s", vodID, u)
+						return s.getPlayUrl(ctx, u)
 					}
 				}
 			}
@@ -763,13 +763,13 @@ func (s *Server) getPlayUrl(playURL string) (map[string]any, error) {
 	if strings.Contains(playURL, ".m3u8") || strings.Contains(playURL, ".mp4") || strings.Contains(playURL, ".flv") {
 		// 直链也校验：历史续播/缓存可能携带已失效的带 sign 地址。
 		if !validateMediaReachable(playURL) {
-			logInfo("play resolve: direct url unreachable, fail: %s", playURL)
+			logInfoC(ctx, "play resolve: direct url unreachable, fail: %s", playURL)
 			return nil, fmt.Errorf("播放地址已失效")
 		}
-		logInfo("play resolved: url=%s type=%s", playURL, playType(playURL))
+		logInfoC(ctx, "play resolved: url=%s type=%s", playURL, playType(playURL))
 		return map[string]any{"isSuccess": true, "url": playURL, "type": playType(playURL)}, nil
 	}
-	htmlText, err := fetchPage(playURL, desktopUA, "utf-8", false)
+	htmlText, err := fetchPage(ctx, playURL, desktopUA, "utf-8", false)
 	if err != nil {
 		return nil, err
 	}
@@ -777,7 +777,7 @@ func (s *Server) getPlayUrl(playURL string) (map[string]any, error) {
 	// 上游直接返回播放列表文本（无后缀目录式 m3u8 URL）：无需正则提取，
 	// 原 URL 即媒体地址，直接按 m3u8 处理（正则匹配不到相对路径的列表）。
 	if isPlaylistBody(htmlText) {
-		logInfo("play resolved(playlist-body): url=%s type=m3u8", playURL)
+		logInfoC(ctx, "play resolved(playlist-body): url=%s type=m3u8", playURL)
 		return map[string]any{"isSuccess": true, "url": playURL, "type": "m3u8"}, nil
 	}
 	if u, ok := extractPlayURL(htmlText); ok {
@@ -787,19 +787,19 @@ func (s *Server) getPlayUrl(playURL string) (map[string]any, error) {
 		// 校验解析出的直链真实可达（sign 时效/资源下架场景），不可达按
 		// 解析失败处理——绝不把必然 404 的地址交给浏览器去撞。
 		if !validateMediaReachable(u) {
-			logInfo("play resolve: extracted url unreachable, fail: %s", u)
+			logInfoC(ctx, "play resolve: extracted url unreachable, fail: %s", u)
 			return nil, fmt.Errorf("播放地址已失效")
 		}
-		logInfo("play resolved: url=%s type=%s", u, playType(u))
+		logInfoC(ctx, "play resolved: url=%s type=%s", u, playType(u))
 		return map[string]any{"isSuccess": true, "url": u, "type": playType(u)}, nil
 	}
 	// 正则提取失败：URL 本身可能是无后缀的媒体地址（目录式 m3u8 等），
 	// 探测 Content-Type 识别，避免把播放列表误当 iframe 页面导致播放失败。
 	if mt := probeURLMediaType(playURL); mt != "" {
-		logInfo("play resolved(probe): url=%s type=%s", playURL, mt)
+		logInfoC(ctx, "play resolved(probe): url=%s type=%s", playURL, mt)
 		return map[string]any{"isSuccess": true, "url": playURL, "type": mt}, nil
 	}
-	logInfo("play resolved: url=%s type=iframe(fallback)", playURL)
+	logInfoC(ctx, "play resolved: url=%s type=iframe(fallback)", playURL)
 	return map[string]any{"isSuccess": true, "url": playURL, "type": "iframe"}, nil
 }
 
