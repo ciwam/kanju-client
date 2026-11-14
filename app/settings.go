@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os/exec"
 	"strings"
 
 	"kanju/client/theme"
@@ -95,7 +96,11 @@ func LogCard(cx *core.Scope) core.View {
 			return
 		}
 		ClientLog("[logs] 打开日志目录 %s", dir)
-		cx.OpenURL("file://"+dir, nil)
+		// nsgo 的 OpenURL 拒绝 file:// 协议（refusedSchemes），
+		// 在 Finder 里打开目录用平台的 open 命令。
+		if err := exec.Command("open", dir).Start(); err != nil {
+			ClientLog("[logs] 打开目录失败: %v", err)
+		}
 	}
 
 	return theme.Card(cx,
