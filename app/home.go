@@ -285,10 +285,8 @@ func Home(cx *core.Scope, a *App) core.Node {
 				merged := append(append([]api.DoubanItem{}, now...), list...)
 				items.Set(merged)
 				a.HomeCache.Put(key, merged)
-				// 网格重建会回顶：滚到新加载的第一行保持阅读位置。
-				if a.OnPageLoaded != nil {
-					a.OnPageLoaded(start)
-				}
+				// 不做滚动补偿：追加保留已测量行的偏移，List 原地不动
+				// （pin 补偿的正反馈见 posterGrid 注释）。
 			})
 		}()
 	}
@@ -526,28 +524,26 @@ func chipButton(cx *core.Scope, label string, active bool, press func()) core.No
 //   - 切换分类：分类 key 变化时 Dynamic 重建整个 List（nsgo List 的
 //     splice 在大批量替换时丢变更/不更新行——20261114 快照实锤，
 //     等上游修复后可回收此绕过）
+//
+// 注意：分页追加后不要调 ScrollToIndexAt 补偿——nsgo 的 pin 在 viewport
+// 内行测量完成前会持续跟随目标（followPin），而未测量行按 EstimatedSize
+// 估算、与实际行高的累计偏差让它不断把列表往下拽，靠近尾部再触发
+// OnLoadMore → 追加 → 再 pin，正反馈一路滚到底（启动连环加载到底的根因）。
+// 追加本身保留已测量行的偏移，不需要补偿。
 func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], loadMore func(), pageLoading, noMore *core.Signal[bool], catKey *core.Signal[string]) core.Node {
 	const gap = core.Points(14)
-	estimated := core.Points(160/0.7) + 44
 	gridRef := &core.Ref{}
-	// 分页完成后滚到新加载的第一行（Dynamic 重建 List 会回顶，这里补偿）。
-	// 延迟两帧等新 List commit 完成，否则滚动命令作用在旧 List 上会丢。
-	a.OnPageLoaded = func(firstNew int) {
-		go func() {
-			time.Sleep(120 * time.Millisecond)
-			cx.Post(func() {
-				gridRef.ScrollToIndexAt(firstNew, 0, 0, false)
-				ClientLog("[home] 滚回第 %d 行（延迟补偿）", firstNew)
-			})
-		}()
-	}
 	// 列数随窗口宽度自适应（OnLayout 测量 → 列数变化重建 List，
 	// NumColumns 挂载时固化的框架限制，与 catKey 同一重建模式）。
 	cols, measure := theme.Measure(cx)
 	return measure(core.Dynamic(func(*core.Scope) core.Node {
-		_ = catKey.Get()   // track：切分类时重建 List
-		n := cols()        // track：窗口宽度跨档时重建 List
-		_ = items          // 注意：严禁 track items——分页 Set 会重建 List 回顶
+		_ = catKey.Get() // track：切分类时重建 List
+		n := cols()      // track：窗口宽度跨档时重建 List
+		_ = items        // 注意：严禁 track items——分页 Set 会重建 List 回顶
+		// 行高估算按当前列数：海报宽 ≈ (1000-14×(n-1))/n，高 = 宽/0.7，
+		// 加标题区 44 与行距 gap+8。估得越准，pin/窗口估算的累计偏差越小。
+		cardW := core.Points((1000 - 14*(n-1)) / n)
+		estimated := cardW/0.7 + 44 + gap + 8
 		ClientLog("[home] posterGrid 列数 %d", n)
 		return buildPosterGrid(cx, a, items, loadMore, pageLoading, noMore, n, gap, estimated, gridRef)
 	}))
@@ -564,7 +560,7 @@ func buildPosterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem
 		Gap:               gap + 8,
 		ColumnGap:         gap,
 		OnLoadMore:        loadMore,
-		LoadMoreThreshold: 2.5, // 提前 2.5 屏预加载，滑到底部时下一页已在路上
+		LoadMoreThreshold: 1.5, // 提前 1.5 屏预加载；太大在内容不足时连环加载
 		Row: func(cx *core.Scope, row core.ListRow) core.Node {
 			// 官方模式：Row 返回的子树必须响应式——cell 会被跨数据复用
 			// （bind 只更新 pos.index 信号），静态取值会让复用行永远显示

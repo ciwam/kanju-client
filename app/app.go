@@ -31,8 +31,6 @@ type App struct {
 
 	// HomeCache 首页分类数据缓存（跨页签保留）。
 	HomeCache homeCache
-	// OnPageLoaded 分页数据到达后的滚动补偿回调（posterGrid 设置）。
-	OnPageLoaded func(firstNew int)
 	// 首页分类信号（Home 挂载时注册，用于状态查询/测试）。
 	homeKind  *core.Signal[string]
 	homeSub   *core.Signal[int]
