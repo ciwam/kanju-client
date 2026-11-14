@@ -128,17 +128,14 @@ func Home(cx *core.Scope, a *App) core.Node {
 		}
 		ClientLog("[home] 切换分类 %s", key)
 		reqKey.Set(key)
-		catKey.Set(key) // 触发网格重建（nsgo List splice 丢变更的绕过）
+		catKey.Set(key) // 重建网格
 		tag, sort := currentTag()
+		// 缓存数据先垫上（有则秒显），但总是重新请求豆瓣拿最新，
+		// 期间显示加载覆盖层（用户要求的确定性加载体验）。
 		applyCache()
-		if len(items.Get()) > 0 {
-			ClientLog("[home] 缓存命中 %s (%d 条)", key, len(items.Get()))
-			return
-		}
-		ClientLog("[home] 请求发出 %s", key)
 		loading.Set(true)
 		errMsg.Set("")
-		ClientLog("[home] 显示旧内容等待新数据 (旧 %d 条)", len(items.Get()))
+		ClientLog("[home] 请求发出 %s (垫底 %d 条)", key, len(items.Get()))
 		client := a.API
 		k := kind.Get()
 		go func() {
@@ -247,8 +244,8 @@ func Home(cx *core.Scope, a *App) core.Node {
 					// 首屏骨架：比 spinner 有内容感。
 					return theme.SkeletonGrid(cx, 2, 4)
 				case loading.Get() && len(items.Get()) > 0:
-					// 切换到未缓存分类：旧内容继续显示，顶部一条加载状态。
-					return ui.Text("正在加载「"+sectionTitle.Get()+"」…", 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted })
+					// 切换分类：旧内容继续显示，顶部一条加载状态。
+					return theme.Row(8, ui.Spinner{}, ui.Text("正在加载「"+sectionTitle.Get()+"」…", 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }))
 				case errMsg.Get() != "" && len(items.Get()) == 0:
 					return theme.ErrorRetry(cx, errMsg.Get(), func() { load() })
 				case errMsg.Get() != "" && len(items.Get()) > 0:
