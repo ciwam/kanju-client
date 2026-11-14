@@ -4,9 +4,11 @@ package app
 import (
 	"context"
 	"log"
+	"strconv"
 	"sync"
 
 	"kanju/client/api"
+	"kanju/client/theme"
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -176,6 +178,13 @@ func Setup(cx *core.Scope) *App {
 	store := cx.Storage()
 	if v, ok := store.GetItem("prefer_source"); ok && v == "tmdb" {
 		a.PreferSourceSignal.Set("tmdb")
+	}
+	// 恢复海报网格列数（首帧初值）：网格挂载时宽度未知，用上次会话
+	// 的列数渲染，测到真实宽度后不再跳变（消除 4→5 闪变）。
+	if v, ok := store.GetItem("poster_cols"); ok {
+		if n, err := strconv.Atoi(v); err == nil {
+			theme.InitialCols(n)
+		}
 	}
 	cx.Effect(func() {
 		v := a.PreferSourceSignal.Get()
