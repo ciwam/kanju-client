@@ -1,9 +1,12 @@
-// Package app 内的日志中心：客户端与内嵌后端共用一个内存环形缓冲。
+// Package app 内的日志中心：客户端与内嵌后端共用一个内存环形缓冲，
+// 同时落盘到应用数据目录 logs/（崩溃后仍可排查）。
 package app
 
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -14,9 +17,40 @@ var (
 	logMu        sync.Mutex
 	logLines     []string
 	logListeners []chan struct{}
+	logFile      *os.File
+	logDir       string
 )
 
 var embeddedLogPipe *io.PipeWriter
+
+// InitFileLogs 把日志落盘到 dir/logs/（应用启动时调用一次）。
+func InitFileLogs(dir string) {
+	if dir == "" {
+		return
+	}
+	d := filepath.Join(dir, "logs")
+	if err := os.MkdirAll(d, 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(d, time.Now().Format("2006-01-02")+".log"),
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	logMu.Lock()
+	logFile = f
+	logDir = d
+	logMu.Unlock()
+	// 会话分隔行。
+	f.WriteString(fmt.Sprintf("\n===== 会话开始 %s =====\n", time.Now().Format("2006-01-02 15:04:05")))
+}
+
+// logDirPath 返回日志目录（未初始化返回 ""）。
+func logDirPath() string {
+	logMu.Lock()
+	defer logMu.Unlock()
+	return logDir
+}
 
 func init() {
 	rd, wr := io.Pipe()
@@ -64,13 +98,17 @@ func indexByte(b []byte, c byte) int {
 // pushLog 追加一行并通知监听者。任意 goroutine 可调。
 func pushLog(line string) {
 	stamp := time.Now().Format("15:04:05")
+	full := stamp + "  " + line
 	logMu.Lock()
-	logLines = append(logLines, stamp+"  "+line)
+	logLines = append(logLines, full)
 	if len(logLines) > logCapacity {
 		logLines = logLines[len(logLines)-logCapacity:]
 	}
 	listeners := make([]chan struct{}, len(logListeners))
 	copy(listeners, logListeners)
+	if logFile != nil {
+		logFile.WriteString(full + "\n") // 落盘失败静默（不能因日志崩应用）
+	}
 	logMu.Unlock()
 	for _, ch := range listeners {
 		select {

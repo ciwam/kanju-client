@@ -183,11 +183,14 @@ func Setup(cx *core.Scope) *App {
 
 	// 优雅退出：关停内嵌后端（SQLite checkpoint）。
 	cx.OnQuit(func(ctx context.Context) {
+		ClientLog("[app] 退出")
 		if embeddedStop != nil {
-			ClientLog("[app] 退出：关停内嵌后端")
 			embeddedStop()
 		}
 	})
+
+	// 日志落盘到应用数据目录 logs/（崩溃后仍可排查）。
+	InitFileLogs(cx.DataDir())
 
 	a := SetupForTest(cx, defaultBase)
 	// 全部 API 请求打进统一日志（排查用）。

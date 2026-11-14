@@ -89,6 +89,14 @@ func LogCard(cx *core.Scope) core.View {
 
 	clear := func() { ClearLogs(); version.Update(func(n int) int { return n + 1 }) }
 	copyAll := func() { cx.SetClipboard(strings.Join(Logs(), "\n")) }
+	openDir := func() {
+		dir := logDirPath()
+		if dir == "" {
+			return
+		}
+		ClientLog("[logs] 打开日志目录 %s", dir)
+		cx.OpenURL("file://"+dir, nil)
+	}
 
 	return theme.Card(cx,
 		core.View{
@@ -98,6 +106,7 @@ func LogCard(cx *core.Scope) core.View {
 					StyleFunc: func() core.Style { return core.Style{FlexGrow: 1, FlexShrink: 1} },
 					Children:  []core.Node{theme.Title("运行日志", 14, ui.Semibold)},
 				},
+				ui.Button{Text: "打开日志目录", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: openDir},
 				ui.Button{Text: "复制", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: copyAll},
 				ui.Button{Text: "清空", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: clear},
 			},
