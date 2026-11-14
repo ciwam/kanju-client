@@ -327,7 +327,6 @@ func segItem(cx *core.Scope, label string, active bool, press func()) core.Node 
 				st := core.Style{
 					Height: core.Pt(26), Padding: core.Symmetric(0, 16),
 					CornerRadius: 7, JustifyContent: core.JustifyCenter,
-					Transition: core.Transition{Duration: 150 * time.Millisecond, Easing: core.EaseOut},
 				}
 				if active {
 					st.Background = p.Background
@@ -358,8 +357,7 @@ func chipButton(cx *core.Scope, label string, active bool, press func()) core.No
 		p := cx.Palette()
 		st := core.Style{
 			Padding: core.Symmetric(4, 12), CornerRadius: 999, FontSize: 12,
-			Transition: core.Transition{Duration: 120 * time.Millisecond, Easing: core.EaseOut},
-			Active:     &core.Style{Transform: core.Transform{Scale: 0.96}},
+			Active: &core.Style{Transform: core.Transform{Scale: 0.96}},
 		}
 		if active {
 			st.Background = p.Accent
