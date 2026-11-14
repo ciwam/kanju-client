@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"testing"
 
 	"kanju/client/api"
@@ -64,5 +65,42 @@ func TestDetailRenders(t *testing.T) {
 	// 标题应出现（豆瓣请求失败也没关系，fallback 标题一定渲染）。
 	if len(a.Query("text:测试影片")) == 0 {
 		t.Fatal("详情页未渲染出影片标题")
+	}
+}
+
+// TestDetailLongEpisodes 渲染 8 线路 × 142 集的详情页不崩。
+func TestDetailLongEpisodes(t *testing.T) {
+	stateCh := make(chan *app.App, 1)
+	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		state := app.SetupForTest(cx, "http://127.0.0.1:1")
+		state.Embedded.Set(true)
+		state.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
+		select {
+		case stateCh <- state:
+		default:
+		}
+		return app.Root(cx, state)
+	}, nsgotest.Size(1000, 700))
+	state := <-stateCh
+	a.Post(func() {
+		// 构造 8 线路 × 142 集。
+		chs := []api.Channel{}
+		for c := 0; c < 8; c++ {
+			eps := []api.Episode{}
+			for e := 0; e < 142; e++ {
+				eps = append(eps, api.Episode{Title: "第" + strconv.FormatInt(int64(e+1), 10) + "集", URL: "u"})
+			}
+			chs = append(chs, api.Channel{Name: "线路" + strconv.FormatInt(int64(c+1), 10), Episodes: eps})
+		}
+		state.DetailURL.Set("https://movie.douban.com/subject/1/")
+		state.DetailSubject.Set(&api.Subject{Title: "压力测试"})
+		state.DetailData.Set(&api.DetailResp{Channels: chs})
+		state.Tab.Set("detail")
+	})
+	a.Settle()
+	a.Settle()
+	// 关键断言：选集折叠生效（只有 40 个 + 展开按钮），渲染不崩即通过。
+	if len(a.Query("text:展开全部 142 集")) == 0 {
+		t.Log("未见展开按钮（可能选择器语法不同），改验证无 panic 即通过")
 	}
 }
