@@ -418,15 +418,16 @@ func posterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], lo
 
 func buildPosterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem], loadMore func(), pageLoading, noMore *core.Signal[bool], columns int, gap, estimated core.Points, gridRef *core.Ref) core.List {
 	return core.List{
-		Ref:           gridRef,
-		Count:         func() int { return len(items.Get()) },
-		Key:           func(i int) any { return items.Get()[i].URL },
-		NumColumns:    columns,
-		EstimatedSize: estimated,
-		Viewport:      core.ListViewportOwn,
-		Gap:           gap + 8,
-		ColumnGap:     gap,
-		OnLoadMore:    loadMore,
+		Ref:               gridRef,
+		Count:             func() int { return len(items.Get()) },
+		Key:               func(i int) any { return items.Get()[i].URL },
+		NumColumns:        columns,
+		EstimatedSize:     estimated,
+		Viewport:          core.ListViewportOwn,
+		Gap:               gap + 8,
+		ColumnGap:         gap,
+		OnLoadMore:        loadMore,
+		LoadMoreThreshold: 2.5, // 提前 2.5 屏预加载，滑到底部时下一页已在路上
 		Row: func(cx *core.Scope, row core.ListRow) core.Node {
 			// 官方模式：Row 返回的子树必须响应式——cell 会被跨数据复用
 			// （bind 只更新 pos.index 信号），静态取值会让复用行永远显示

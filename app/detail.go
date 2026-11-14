@@ -317,9 +317,12 @@ func subjectHead(cx *core.Scope, a *App, s *api.Subject) []core.Node {
 	}}
 }
 
-// epCollapseLimit 选集折叠阈值：超过则默认只渲染前 N 个 + 展开按钮。
+// epCollapseLimit 选集折叠阈值：超过则默认只渲染前 N 个。
 // 142 集 × 8 线路一次全渲染会把主线程卡死甚至 OOM（闪退根因）。
 const epCollapseLimit = 40
+
+// epBatchSize 展开/追加时每批渲染的数量。
+const epBatchSize = 80
 
 // channelSection 一条线路的选集列表（超长折叠）。
 func channelSection(cx *core.Scope, a *App, ch api.Channel, play func(api.Episode, api.Channel)) core.View {
@@ -328,14 +331,13 @@ func channelSection(cx *core.Scope, a *App, ch api.Channel, play func(api.Episod
 		name += "（" + ch.SourceName + "）"
 	}
 	nowPlaying := a.DetailNowPlaying.Get()
-	expanded := core.NewSignal(cx, false)
+	// shown 当前渲染到的集数：初始折叠数，点「展开更多」每批追加。
+	shown := core.NewSignal(cx, epCollapseLimit)
 	body := core.Dynamic(func(*core.Scope) core.Node {
 		eps := ch.Episodes
-		limit := epCollapseLimit
-		// 展开时全量；未展开时保证当前播放的集可见（截窗向前扩）。
-		if expanded.Get() || len(eps) <= limit {
-			limit = len(eps)
-		} else if nowPlaying != "" {
+		limit := shown.Get()
+		// 保证当前播放的集可见（截窗向前扩）。
+		if nowPlaying != "" {
 			for i, ep := range eps {
 				if ep.URL == nowPlaying && i >= limit {
 					limit = i + 1
@@ -367,11 +369,16 @@ func channelSection(cx *core.Scope, a *App, ch api.Channel, play func(api.Episod
 			})
 		}
 		children := []core.Node{row}
-		if len(eps) > limit {
+		if remaining := len(eps) - limit; remaining > 0 {
+			// 分批展开：点一次追加一批，避免一次渲染几百个按钮卡顿。
+			batch := remaining
+			if batch > epBatchSize {
+				batch = epBatchSize
+			}
 			children = append(children, ui.Button{
-				Text:    "展开全部 " + itoa(int64(len(eps))) + " 集",
+				Text:    "展开更多（剩余 " + itoa(int64(remaining)) + " 集）",
 				Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-				OnPress: func() { expanded.Set(true) },
+				OnPress: func() { shown.Update(func(n int) int { return n + batch }) },
 			})
 		}
 		return core.View{Style: core.Style{Gap: 8}, Children: children}
