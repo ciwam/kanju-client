@@ -2,3 +2,4 @@ dist/
 *.app
 *.dmg
 app_test.go.bak
+.env

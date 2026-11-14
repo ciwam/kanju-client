@@ -55,6 +55,13 @@ if $do_run && [[ " ${args[*]-} " != *" -target "* ]]; then
     args=(-target macos_arm64 "${args[@]-}")
 fi
 
+echo "==> 加载本机配置（.env）"
+if [ -f .env ]; then
+    set -a
+    source .env
+    set +a
+fi
+
 echo "==> 检查环境"
 if ! command -v go >/dev/null 2>&1; then
     echo "错误: 未找到 go" >&2
