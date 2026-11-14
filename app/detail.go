@@ -1,6 +1,8 @@
 package app
 
 import (
+	"fmt"
+
 	"kanju/client/api"
 	"kanju/client/theme"
 
@@ -133,6 +135,12 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 		client := a.API
 		go func() {
 			r, err := client.Play(ep.URL)
+			if err != nil {
+				// 换源重试：当前线路的解析失败（地址失效/线路整体下线）时，
+				// 在其它线路里找同名选集依次尝试（如量子资源播放域名整体
+				// 失效，其它站源的同集仍可播）。
+				r, err = playFallback(cx, a, client, ep, ch)
+			}
 			cx.Post(func() {
 				a.DetailPlayBusy.Set("")
 				if err != nil {
@@ -238,6 +246,36 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 			}}
 		})},
 	}
+}
+
+// playFallback 换源重试：在其它线路里找同名选集依次尝试解析。
+// 线路整体失效（如量子资源播放域名全部 404）时，同集在其它站源
+// 线路仍可播。全部失败返回最后一个错误。
+func playFallback(cx *core.Scope, a *App, client *api.Client, ep api.Episode, failed api.Channel) (api.PlayResult, error) {
+	data := a.DetailData.Get()
+	if data == nil {
+		return api.PlayResult{}, fmt.Errorf("获取播放地址失败")
+	}
+	var lastErr error = fmt.Errorf("获取播放地址失败")
+	for _, ch := range mergeChannels(data.Channels) {
+		if ch.Name == failed.Name && ch.SourceName == failed.SourceName {
+			continue
+		}
+		for _, cand := range ch.Episodes {
+			if cand.Title != ep.Title {
+				continue
+			}
+			ClientLog("[detail] 换源重试 %q line=%q url=%s", ep.Title, ch.Name, cand.URL)
+			a.DetailPlayBusy.Set("当前线路不可用，尝试 " + ch.Name + "…")
+			r, err := client.Play(cand.URL)
+			if err == nil {
+				ClientLog("[detail] 换源成功 line=%q", ch.Name)
+				return r, nil
+			}
+			lastErr = err
+		}
+	}
+	return api.PlayResult{}, lastErr
 }
 
 // favButton 收藏/已收藏切换按钮（状态在 App.DetailFav）。
