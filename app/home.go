@@ -159,7 +159,9 @@ func Home(cx *core.Scope, a *App) core.Node {
 	applyCache := func() {
 		if v, ok := a.HomeCache.Get(categoryKey()); ok {
 			items.Set(v)
-			noMore.Set(len(v) < pageLimit)
+			// 缓存命中后允许翻页续拉；短缓存（豆瓣去重/rexxar 18 条）
+			// 不代表到底，翻页请求空页才终止。
+			noMore.Set(false)
 		} else {
 			noMore.Set(false)
 		}
@@ -236,7 +238,8 @@ func Home(cx *core.Scope, a *App) core.Node {
 				ClientLog("[home] 请求完成 %s: %d 条 source=%q", key, len(list), source)
 				items.Set(list)
 				a.HomeCache.Put(key, list)
-				noMore.Set(len(list) < pageLimit)
+				// 短页（豆瓣去重 29、rexxar 18）不是到底，允许翻页。
+				noMore.Set(false)
 			})
 		}
 		go attempt(0)
@@ -248,8 +251,7 @@ func Home(cx *core.Scope, a *App) core.Node {
 			return
 		}
 		cur := items.Get()
-		if len(cur) == 0 || len(cur) < pageLimit { // 不足一页说明到底了
-			noMore.Set(true)
+		if len(cur) == 0 {
 			return
 		}
 		key := categoryKey()
@@ -268,12 +270,13 @@ func Home(cx *core.Scope, a *App) core.Node {
 				if reqKey.Get() != key || err != nil {
 					return
 				}
-				if len(list) == 0 || len(list) < pageLimit {
+				if len(list) == 0 {
 					noMore.Set(true)
-					if len(list) == 0 {
-						return
-					}
+					return
 				}
+				// 短页不置 noMore：豆瓣去重后 29/30、rexxar 部分
+				// 榜单本身就只有十几条、TMDB 每页 20——不足一页
+				// ≠ 到底。下次翻页后端返回空页才真正终止。
 				// items 可能在请求飞行中被重置（同 key 重进），以当前值拼接而非闭包快照。
 				now := items.Get()
 				if len(now) != start {
