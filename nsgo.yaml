@@ -2,7 +2,7 @@ name: Kanju
 id: me.kanju.client
 version: 0.1.0
 # 每次发版由 release.sh 自动 +1（检查更新比对本地与线上 build 号）。
-build_number: 29912539
+build_number: 29912549
 
 dev:
   target: native
