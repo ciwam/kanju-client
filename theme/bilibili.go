@@ -44,6 +44,10 @@ func AppBar(cx *core.Scope, left, center, right []core.Node) core.View {
 				Borders:     core.Edges{Bottom: 1},
 				BorderColors: core.EdgeColors{Bottom: p.Border},
 				BorderStyle: core.BorderSolid,
+				// 横向撑满父容器：父是 Column 时子项默认收缩到内容宽，
+				// 顶栏不满宽会让右侧入口与搜索按钮偏离右缘。
+				AlignSelf: core.AlignStretch,
+				Width:     core.Pct(100),
 			}
 		},
 		Children: append(append(append([]core.Node{}, left...), center...), right...),

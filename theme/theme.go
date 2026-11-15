@@ -46,8 +46,11 @@ func Fill() core.Style {
 	return core.Style{FlexGrow: 1, FlexShrink: 1, Width: core.Pct(100), Height: core.Pct(100)}
 }
 
-// isAndroid Android 构建（GOOS=android）。
+// isAndroid Android 构建（GOOS=android）。测试可注入覆盖。
 var isAndroid = runtime.GOOS == "android"
+
+// SetAndroidForTest 强制切换 Android 布局分支（仅测试用）。
+func SetAndroidForTest(v bool) { isAndroid = v }
 
 // IsAndroid 当前是否 Android 构建（手机布局适配用）。
 func IsAndroid() bool { return isAndroid }
