@@ -323,14 +323,46 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 并发聚合：每站源一个 goroutine（信号量限并发），成功后探测第一集
-	// 可播性——不可播的站源直接剔除（用户点开就能播，不再"点了才发现
-	// 失效"）。cover/intro 取首个成功源。
+	// 并发聚合：每站源一个 goroutine（信号量限并发），成功后解析第一集
+	// 直链并实测下载——不可播的站源直接剔除（用户点开就能播），可达的
+	// 顺带测出网速（_speedKbps/_ttfbMs 盖到每条线路），前端据此展示并
+	// 默认选中最快的站源。cover/intro 取首个成功源。
 	type srcResult struct {
-		channels []map[string]any
-		cover    string
-		intro    string
-		ok       bool
+		channels    []map[string]any
+		cover       string
+		intro       string
+		speedKBps   int
+		ttfbMs      int
+		bitrateKbps int
+		ok          bool
+	}
+	// probeFirstEpisode 解析第一个能解析出直链的选集并实测网速。
+	probeFirstEpisode := func(eps []map[string]any) (playable bool, m mediaMetrics) {
+		for _, cm := range eps {
+			for _, ep := range episodesOf(cm) {
+				u := getMapStr(ep, "url")
+				if u == "" {
+					continue
+				}
+				pr, pe := s.getPlayUrl(ctx, u)
+				if pe != nil {
+					return false, m
+				}
+				mediaURL := getMapStr(pr, "url")
+				mediaType := getStr(pr, "type")
+				if mediaURL == "" || mediaType == "iframe" {
+					return false, m
+				}
+				probe := s.probeMedia(mediaURL, mediaType)
+				if !probe.Playable {
+					return false, m
+				}
+				logInfoC(ctx, "detail source probe speed=%dKB/s ttfb=%dms bitrate=%dKbps",
+					probe.Metrics.SpeedKBps, probe.Metrics.TTFBMs, probe.Metrics.BitrateKBps)
+				return true, probe.Metrics
+			}
+		}
+		return false, m
 	}
 	chRes := make(chan srcResult, len(sources))
 	sem := make(chan struct{}, searchConcurrency)
@@ -350,24 +382,7 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			if isSuccessWithData(res) {
 				eps := channelsOf(res)
-				// 可播性探测：第一集解析成功才收（getPlayUrl 内含
-				// 解析+直链可达校验）。
-				playable := false
-				if len(eps) > 0 {
-					for _, cm := range eps {
-						for _, ep := range episodesOf(cm) {
-							if u := getMapStr(ep, "url"); u != "" {
-								if _, pe := s.getPlayUrl(ctx, u); pe == nil {
-									playable = true
-								}
-								break
-							}
-						}
-						if playable {
-							break
-						}
-					}
-				}
+				playable, metrics := probeFirstEpisode(eps)
 				if !playable {
 					logInfoC(ctx, "detail source=%q 不可播（第一集解析失败），剔除", source.Name)
 					chRes <- srcResult{}
@@ -376,9 +391,13 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 				out := []map[string]any{}
 				for _, cm := range eps {
 					cm["_sourceName"] = source.Name
+					cm["_speedKbps"] = metrics.SpeedKBps
+					cm["_ttfbMs"] = metrics.TTFBMs
+					cm["_bitrateKbps"] = metrics.BitrateKBps
 					out = append(out, cm)
 				}
-				chRes <- srcResult{channels: out, cover: getMapStr(res, "cover"), intro: getMapStr(res, "intro"), ok: true}
+				chRes <- srcResult{channels: out, cover: getMapStr(res, "cover"), intro: getMapStr(res, "intro"),
+					speedKBps: metrics.SpeedKBps, ttfbMs: metrics.TTFBMs, bitrateKbps: metrics.BitrateKBps, ok: true}
 				return
 			}
 			// json_api 站源的标题 fallback（原逻辑保持）。
@@ -406,27 +425,18 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 						dres, de := s.getDetail(ctx, source, getMapStr(item, "url"))
 						if de == nil && dres != nil && isSuccessWithData(dres) {
 							eps := channelsOf(dres)
-							playable := false
-							for _, cm := range eps {
-								for _, ep := range episodesOf(cm) {
-									if u := getMapStr(ep, "url"); u != "" {
-										if _, pe := s.getPlayUrl(ctx, u); pe == nil {
-											playable = true
-										}
-										break
-									}
-								}
-								if playable {
-									break
-								}
-							}
+							playable, metrics := probeFirstEpisode(eps)
 							if playable {
 								out := []map[string]any{}
 								for _, cm := range eps {
 									cm["_sourceName"] = source.Name
+									cm["_speedKbps"] = metrics.SpeedKBps
+									cm["_ttfbMs"] = metrics.TTFBMs
+									cm["_bitrateKbps"] = metrics.BitrateKBps
 									out = append(out, cm)
 								}
-								chRes <- srcResult{channels: out, cover: getMapStr(dres, "cover"), intro: getMapStr(dres, "intro"), ok: true}
+								chRes <- srcResult{channels: out, cover: getMapStr(dres, "cover"), intro: getMapStr(dres, "intro"),
+									speedKBps: metrics.SpeedKBps, ttfbMs: metrics.TTFBMs, bitrateKbps: metrics.BitrateKBps, ok: true}
 								return // 本源已出结果，不再 send
 							}
 							logInfoC(ctx, "detail source=%q fallback 不可播，剔除", source.Name)

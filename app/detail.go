@@ -219,6 +219,9 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 					}
 					first := groups[si]
 					firstSourceLabel = first.SourceName + " · " + first.Name
+					if first.SpeedKBps > 0 {
+						firstSourceLabel += "（" + formatSpeed(first.SpeedKBps) + "）"
+					}
 					var firstEp api.Episode
 					if len(first.Episodes) > 0 {
 						firstEp = first.Episodes[0]
@@ -499,7 +502,8 @@ func mergeChannels(channels []api.Channel) []api.Channel {
 		if !ok {
 			i = len(out)
 			index[name] = i
-			out = append(out, api.Channel{Name: name, SourceName: ch.SourceName})
+			out = append(out, api.Channel{Name: name, SourceName: ch.SourceName,
+				SpeedKBps: ch.SpeedKBps, TTFBMs: ch.TTFBMs})
 		}
 		for _, ep := range ch.Episodes {
 			key := ep.URL

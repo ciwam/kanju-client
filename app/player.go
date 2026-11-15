@@ -661,12 +661,13 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 		}
 
 		// 站源 tab：一次只显示一个站源的集数（B 站合集切换形态）。
+		// 聚合首次出数据时默认选中实测网速最快的站源（用户未手动切过时）。
 		var groups []api.Channel
 		if d != nil {
 			groups = mergeChannels(d.Channels)
 		}
 		if si := selectedSource.Get(); si >= len(groups) {
-			selectedSource.Set(0)
+			selectedSource.Set(fastestSourceIdx(groups))
 		}
 
 		sourceTabs := core.View{Style: core.Style{Direction: core.Row, Gap: 6, Wrap: core.Wrap, FlexShrink: 0}}
@@ -690,7 +691,7 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 					}
 					return st
 				},
-				Children: []core.Node{core.Text{Content: label}},
+				Children: []core.Node{core.Text{Content: label}, sourceSpeedTag(cx, ch)},
 				OnPress: func(core.PressEvent) {
 					selectedSource.Set(i)
 					// 切换站源 = 开始新的选择：清掉上一个站源的报错。
@@ -787,4 +788,53 @@ func prefixSep(existing string) string {
 		return ""
 	}
 	return " · "
+}
+
+// sourceSpeedTag 站源 tab 上的实测网速标签（聚合时对该站源第一集实测），
+// 无测量数据（老缓存/测速失败）时不显示。网速越好播放越流畅，作为选源
+// 参考直观展示给用户。
+func sourceSpeedTag(cx *core.Scope, ch api.Channel) core.Node {
+	if ch.SpeedKBps <= 0 {
+		return core.View{}
+	}
+	speed := ch.SpeedKBps
+	color := func() core.Color { return cx.Palette().Accent }
+	label := formatSpeed(speed)
+	// 速度余量不足（实测吞吐低于 1MB/s）标橙色提示，供选源参考。
+	if speed < 1024 {
+		orange := core.RGB(0xff9800)
+		color = func() core.Color { return orange }
+	}
+	return core.View{
+		Style: core.Style{FlexShrink: 0},
+		Children: []core.Node{core.Text{
+			Content: label,
+			Style:   core.Style{FontSize: 10, Color: color()},
+		}},
+	}
+}
+
+// formatSpeed 网速标签文案：KB/s 或 MB/s。
+func formatSpeed(kbps int) string {
+	if kbps >= 1024 {
+		return strconv.FormatFloat(float64(kbps)/1024, 'f', 1, 64) + "MB/s"
+	}
+	return strconv.Itoa(kbps) + "KB/s"
+}
+
+// fastestSourceIdx 返回测速最快的站源索引（聚合刚出数据时默认选中它，
+// 网速好播放体验好）；都没有测量数据时保持 0（首个站源）。
+func fastestSourceIdx(groups []api.Channel) int {
+	best := 0
+	bestSpeed := -1
+	for i, ch := range groups {
+		if ch.SpeedKBps > bestSpeed {
+			bestSpeed = ch.SpeedKBps
+			best = i
+		}
+	}
+	if bestSpeed <= 0 {
+		return 0
+	}
+	return best
 }

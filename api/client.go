@@ -492,11 +492,14 @@ type Episode struct {
 	URL   string `json:"url"`
 }
 
-// Channel 是一条线路（站点）。
+// Channel 是一条线路（站点）。SpeedKBps/TTFBMs 是聚合时对该站源第一集
+// 实测的网速指标（0 表示未测到），站源 tab 展示并用于默认选中。
 type Channel struct {
 	Name       string    `json:"name"`
 	Episodes   []Episode `json:"episodes"`
 	SourceName string    `json:"_sourceName"`
+	SpeedKBps  int       `json:"_speedKbps,omitempty"`
+	TTFBMs     int       `json:"_ttfbMs,omitempty"`
 }
 
 // DetailResp 是聚合详情。
