@@ -317,18 +317,28 @@ func updateDialog(cx *core.Scope, u *updateState) core.Node {
 		NoCloseOnEscape:        true,
 		Animation:              core.ModalNone,
 		StyleFunc: func() core.Style {
-			p := cx.Palette()
+			// Modal 容器被框架强制填满屏幕（fill=true），Absolute 定位
+			// 无效——用 flex 居中承载小卡片：容器铺满（触摸/遮挡语义
+			// 不变），卡片固定宽、高度由内容决定。
 			return core.Style{
-				// 居中小卡片：固定宽 260pt（水平居中靠 Left 50% +
-				// TranslateX -50%），Top 40% 高度附近，高度由内容决定
-				// （不设 Bottom/Height，杜绝拉伸占满）。
-				Position: core.Absolute, Left: core.Pct(50), Top: core.Pct(40),
-				Transform:      core.Transform{TranslateXPercent: -50},
-				Width:          core.Pt(260),
-				Padding:        core.Symmetric(12, 16), CornerRadius: 12,
-				Background: p.Surface, Gap: 6,
-				AlignItems: core.AlignCenter,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
 			}
+		},
+		Children: []core.Node{
+			updateCard(cx, u),
+		},
+	}
+}
+
+// updateCard 弹窗里的小卡片：固定宽 260pt、高度随内容。
+func updateCard(cx *core.Scope, u *updateState) core.View {
+	p := cx.Palette()
+	return core.View{
+		Style: core.Style{
+			Width: core.Pt(260), Padding: core.Symmetric(12, 16),
+			CornerRadius: 12, Background: p.Surface, Gap: 6,
+			AlignItems: core.AlignCenter,
 		},
 		Children: []core.Node{
 			phaseRow(cx, u),
@@ -338,7 +348,7 @@ func updateDialog(cx *core.Scope, u *updateState) core.Node {
 				if u.done {
 					return core.View{}
 				}
-				return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
+				return core.View{Style: core.Style{Gap: 6, AlignItems: core.AlignCenter}, Children: []core.Node{
 					progressTrack(cx, u),
 					pctText(cx, u),
 				}}
