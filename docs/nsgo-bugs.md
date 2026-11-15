@@ -207,6 +207,14 @@ dispose 的其它 scope 的信号。
 
 ## 附：非缺陷但相关的框架限制
 
+- **`core.Dynamic` 重跑 = 子树销毁重建，无 diff-patch**
+  （`mountDynamic`：`b.Dispose()` + `t.clear(region)` + 全新 mount）。
+  Dynamic 体内读取的任何信号变化都会重建整个子树——含重资源节点
+  （Video/AVPlayer 重开流、List 滚动位置丢失）。副作用类信号
+  （如 `desktop.FullScreen`、窗口尺寸）的读取必须放 StyleFunc
+  （重算只是样式提交，子树存活），不能放 Dynamic 体内。
+  实锤案例：全屏切换重播（app/player.go，2026-11-15 修复 3466657
+  + 363e8d4，两次才修对——第一次合并了树但读取仍在 Dynamic 内）。
 - `List.NumColumns` / `EstimatedSize` 挂载时固化，不支持响应式
   （见 #2）。
 - `List` 的 `Row` 返回子树必须响应式（官方模式：cell 跨数据复用时
@@ -214,6 +222,9 @@ dispose 的其它 scope 的信号。
   —— 这是文档级约定，违反时症状与 #2 难以区分。
 - `refusedSchemes` 拒绝 `file://` 的 OpenURL；打开日志目录等本地
   文件需求只能绕行 `osascript`/`open -R`。
+- Video 组件对不可达的 HLS 流**静默黑屏，不触发 OnError**
+  （AVPlayer 状态停在 loading，poll 30 秒后放弃但不上报）——坏流
+  必须在应用层预探测（见 app/detail.go 的 ProbeMediaURL 链路）。
 
 ## 环境信息
 
