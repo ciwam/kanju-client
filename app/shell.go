@@ -241,21 +241,21 @@ func appTopBar(cx *core.Scope, a *App) core.Node {
 	// 手机：导航收进底部栏，顶栏 = logo + 搜索框 + 搜索按钮（最右，
 	// 与 logo 左边距对称）；主题切换按钮已移除。
 	if theme.IsAndroid() {
-		// 搜索框不设 MaxWidth：占满剩余空间，搜索按钮才贴右缘
-		//（MaxWidth 限制后剩余空间滞留行尾，按钮被推离右边）。
+		// 搜索框包一层伸展容器（Input 的 native 实现宽度不响应
+		// FlexGrow，外包 View 占满剩余空间、Input 铺满容器），搜索
+		// 按钮才贴右缘。
 		input := searchInput
-		input.Style = core.Style{FlexGrow: 1}
+		input.Style = core.Style{Width: core.Pct(100)}
+		searchArea := core.View{
+			Style:    core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, AlignItems: core.AlignCenter},
+			Desktop:  core.DesktopViewProps{WindowDrag: core.WindowDragOff},
+			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1}, Children: []core.Node{input}}, searchBtn},
+		}
 		return theme.AppBar(cx,
 			// left：logo
 			[]core.Node{logo},
-			// center：全局搜索框
-			[]core.Node{
-				core.View{
-					Style:    core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, AlignItems: core.AlignCenter},
-					Desktop:  core.DesktopViewProps{WindowDrag: core.WindowDragOff},
-					Children: []core.Node{input, searchBtn},
-				},
-			},
+			// center：搜索区
+			[]core.Node{searchArea},
 			// right：无（搜索按钮在 center 内已贴最右）。
 			nil,
 		)
