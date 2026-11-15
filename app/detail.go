@@ -225,23 +225,9 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 
 	// 下区：标题信息 + 状态 + 线路卡片（Dynamic：随聚合数据更新）。
 	infoSection := core.Dynamic(func(*core.Scope) core.Node {
+		// 影片名称/简介等头部信息在右栏（episodeSidebar），下方不重复；
+		// 类型/导演已并入右栏 meta，这里只有状态行与线路卡片。
 		children := []core.Node{}
-		s := a.DetailSubject.Get()
-		d := a.DetailData.Get()
-		if s != nil {
-			if s.Intro == "" && d != nil && d.Intro != "" {
-				s.Intro = d.Intro
-			}
-			if s.Cover == "" && d != nil && d.Cover != "" {
-				s.Cover = d.Cover
-			}
-			children = append(children, subjectHead(cx, a, s)...)
-		} else if d != nil && (d.Intro != "" || d.Cover != "") {
-			children = append(children, fallbackHead(cx, a, a.DetailTitle.Get(), d.Cover, d.Intro))
-		} else {
-			children = append(children, theme.Title(a.DetailTitle.Get(), 22, ui.Semibold))
-		}
-
 		children = append(children, core.Dynamic(func(*core.Scope) core.Node {
 			switch {
 			case a.DetailLoading.Get():
@@ -255,7 +241,7 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 			}
 		}))
 
-		if d != nil {
+		if d := a.DetailData.Get(); d != nil {
 			if len(d.Channels) > 0 {
 				for _, ch := range mergeChannels(d.Channels) {
 					ch := ch

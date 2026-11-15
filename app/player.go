@@ -612,6 +612,10 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 			if s.Episodes != "" {
 				meta += " · " + s.Episodes + "集"
 			}
+			// 类型/导演并入 meta（详情下区不再重复显示这些）。
+			if len(s.Genres) > 0 {
+				meta += " · " + joinNonEmpty(s.Genres, " / ")
+			}
 		} else if d != nil && d.Intro != "" {
 			intro = d.Intro
 		}
