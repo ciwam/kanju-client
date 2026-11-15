@@ -23,6 +23,7 @@ import (
 	"kanju/client/theme"
 
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/mobile"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -33,8 +34,13 @@ type updateState struct {
 	active *core.Signal[bool]
 	phase  *core.Signal[string]
 	pct    *core.Signal[int]
+	// hasErr 结果为错误（弹窗文案变警示色，隐藏进度条）。
+	hasErr *core.Signal[bool]
 	// apkPath 下载完成的 APK 路径（空 = 还没下完）。
 	apkPath *core.Signal[string]
+	// openedAt 弹窗打开时刻；done 结果已出（最短保留计时用）。
+	openedAt time.Time
+	done     bool
 }
 
 func newUpdateState(cx *core.Scope) *updateState {
@@ -42,6 +48,7 @@ func newUpdateState(cx *core.Scope) *updateState {
 		active:  core.NewSignal(cx, false),
 		phase:   core.NewSignal(cx, ""),
 		pct:     core.NewSignal(cx, 0),
+		hasErr:  core.NewSignal(cx, false),
 		apkPath: core.NewSignal(cx, ""),
 	}
 }
@@ -180,6 +187,10 @@ func tryDownload(client *http.Client, u, destPath string, onProgress func(pct in
 	return nil
 }
 
+// minDialogVisibleMs 弹窗最短保留时长（毫秒）：检查很快时弹窗不再
+// 一闪而过，结果文案在弹窗内停留到满时长再收起。
+const minDialogVisibleMs = 1200
+
 // startUpdate 检查更新入口（设置页「检查更新」按钮）：
 // 查最新版 → 有新版 → 下载（进度弹窗）→ 调起安装器。
 func (a *App) startUpdate(cx *core.Scope, u *updateState) {
@@ -207,9 +218,39 @@ func (a *App) startUpdate(cx *core.Scope, u *updateState) {
 			u.phase.Set("正在检查更新…")
 			u.pct.Set(0)
 			u.apkPath.Set("")
+			u.done = false
+			u.openedAt = time.Now()
 			a.UpdateErr.Set("")
 			go a.runUpdate(cx, u)
 		})
+	})
+}
+
+// closeDialog 关闭弹窗，保证自打开起至少 minDialogVisibleMs 可见：
+// 提前完成时等满剩余时间再收（done 标记避免重复延时）。
+func closeDialog(cx *core.Scope, u *updateState, close func()) {
+	if u.done {
+		close()
+		return
+	}
+	u.done = true
+	elapsed := time.Since(u.openedAt)
+	wait := time.Duration(minDialogVisibleMs)*time.Millisecond - elapsed
+	go func() {
+		if wait > 0 {
+			time.Sleep(wait)
+		}
+		cx.Post(close)
+	}()
+}
+
+// showResult 在弹窗内显示最终结果文案（不再转 spinner），到最短保留
+// 时间后关闭。
+func showResult(cx *core.Scope, u *updateState, msg string, err bool) {
+	cx.Post(func() {
+		u.phase.Set(msg)
+		u.hasErr.Set(err)
+		closeDialog(cx, u, func() { u.active.Set(false) })
 	})
 }
 
@@ -218,17 +259,17 @@ func (a *App) runUpdate(cx *core.Scope, u *updateState) {
 	app := core.App()
 	r, err := fetchLatestReleaseFull()
 	if err != nil {
-		cx.Post(func() { u.active.Set(false); a.UpdateErr.Set("检查失败：" + err.Error()) })
+		showResult(cx, u, "检查失败："+err.Error(), true)
 		return
 	}
 	remoteTS := releaseBuildOf(r.Name)
 	if app.Build != "" && remoteTS != "" && app.Build >= remoteTS {
-		cx.Post(func() { u.active.Set(false); a.UpdateErr.Set("已是最新版本") })
+		showResult(cx, u, "已是最新版本", false)
 		return
 	}
 	apkURL := latestAPK(r)
 	if apkURL == "" {
-		cx.Post(func() { u.active.Set(false); a.UpdateErr.Set("最新版没有 Android 安装包") })
+		showResult(cx, u, "最新版没有 Android 安装包", true)
 		return
 	}
 	ClientLog("[update] 发现新版本 %s（build %s > 本地 %s）", r.Name, remoteTS, app.Build)
@@ -240,8 +281,7 @@ func (a *App) runUpdate(cx *core.Scope, u *updateState) {
 	})
 	cx.Post(func() {
 		if err != nil {
-			u.active.Set(false)
-			a.UpdateErr.Set("下载失败：" + err.Error())
+			showResult(cx, u, "下载失败："+err.Error(), true)
 			return
 		}
 		u.phase.Set("下载完成，正在打开安装…")
@@ -279,20 +319,42 @@ func updateDialog(cx *core.Scope, u *updateState) core.Node {
 		},
 		Children: []core.Node{
 			phaseRow(cx, u),
-			progressTrack(cx, u),
-			pctText(cx, u),
+			// 结果已出（成功/失败）只显示文案；下载中才显示进度条与
+			// 百分比。
+			core.Dynamic(func(*core.Scope) core.Node {
+				if u.done {
+					return core.View{}
+				}
+				return core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
+					progressTrack(cx, u),
+					pctText(cx, u),
+				}}
+			}),
 		},
 	}
 }
 
-// phaseRow 阶段文案行（spinner + 动态文案）。
+// phaseRow 阶段文案行：进行中 spinner+中性色；结果已出换图标
+// （成功 ✓ 绿 / 失败 ✗ 红）+ 对应色。
 func phaseRow(cx *core.Scope, u *updateState) core.Node {
 	return core.Dynamic(func(*core.Scope) core.Node {
+		color := cx.Palette().Text
+		var icon core.Node
+		switch {
+		case u.done && u.hasErr.Get():
+			color = cx.Palette().Danger
+			icon = ui.Icon(lucide.CircleX, 18, func() core.Color { return cx.Palette().Danger })
+		case u.done:
+			color = core.RGB(0x2e9e5b)
+			icon = ui.Icon(lucide.CircleCheck, 18, func() core.Color { return core.RGB(0x2e9e5b) })
+		default:
+			icon = ui.Spinner{}
+		}
 		return core.View{
 			Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
 			Children: []core.Node{
-				ui.Spinner{},
-				core.Text{ContentFunc: func() string { return u.phase.Get() }, Style: core.Style{FontSize: 14}},
+				icon,
+				core.Text{ContentFunc: func() string { return u.phase.Get() }, Style: core.Style{FontSize: 14, Color: color}},
 			},
 		}
 	})
