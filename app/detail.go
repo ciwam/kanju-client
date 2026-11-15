@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"runtime/debug"
 
 	"kanju/client/api"
 	"kanju/client/theme"
@@ -152,6 +153,14 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 			return r, nil
 		}
 		go func() {
+			// panic 兜底：换源/探测链路的任何 panic 落日志再抛
+			// （不兜底则整个应用闪退，连现场都没有）。
+			defer func() {
+				if r := recover(); r != nil {
+					ClientLog("[detail] 播放链路 panic: %v\n%s", r, debug.Stack())
+					panic(r)
+				}
+			}()
 			r, err := playOnce(ep.URL)
 			if err != nil {
 				// 换源重试：当前线路的解析失败（地址失效/线路整体下线）时，
@@ -286,6 +295,9 @@ func playFallbackProbe(cx *core.Scope, a *App, client *api.Client, ep api.Episod
 }
 
 // playFallbackWith 是 playFallback 的可测形态：play 函数注入。
+// 注意：在后台 goroutine 运行，信号 Set 一律经 cx.Post 投递到 UI
+// 线程——直接 Set 与 UI 线程的渲染 effect 并发修改信号订阅者列表，
+// 是快速连点集数时应用闪退的根因。
 func playFallbackWith(cx *core.Scope, a *App, play func(string) (api.PlayResult, error), ep api.Episode, failed api.Channel) (api.PlayResult, error) {
 	data := a.DetailData.Get()
 	if data == nil {
@@ -302,7 +314,10 @@ func playFallbackWith(cx *core.Scope, a *App, play func(string) (api.PlayResult,
 				continue // 非同名且非单选集线路：不猜
 			}
 			ClientLog("[detail] 换源重试 %q line=%q(%s) url=%s", ep.Title, ch.Name, ch.SourceName, cand.URL)
-			a.DetailPlayBusy.Set("当前线路不可用，尝试 " + ch.Name + "…")
+			busy := "当前线路不可用，尝试 " + ch.Name + "…"
+			if cx != nil {
+				cx.Post(func() { a.DetailPlayBusy.Set(busy) })
+			}
 			r, err := play(cand.URL)
 			if err == nil {
 				ClientLog("[detail] 换源成功 line=%q", ch.Name)
