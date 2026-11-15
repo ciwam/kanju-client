@@ -695,7 +695,11 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 					return st
 				},
 				Children: []core.Node{core.Text{Content: label}},
-				OnPress:  func(core.PressEvent) { selectedSource.Set(i) },
+				OnPress: func(core.PressEvent) {
+					selectedSource.Set(i)
+					// 切换站源 = 开始新的选择：清掉上一个站源的报错。
+					a.DetailErr.Set("")
+				},
 			})
 		}
 
