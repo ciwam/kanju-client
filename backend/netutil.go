@@ -935,12 +935,14 @@ func fetchDoubanSubject(id, cover string) (map[string]any, error) {
 		intro = getMapStr(subject, "card_subtitle")
 	}
 	if intro = sanitizeIntro(intro); intro == "" {
-		subjectType := getMapStr(subject, "subject_type")
-		mobileURL := "https://m.douban.com/movie/subject/" + id + "/"
-		if subjectType != "movie" {
-			mobileURL = "https://m.douban.com/tv/subject/" + id + "/"
-		}
-		if doc, e := fetchDoc(mobileURL); e == nil {
+		// 豆瓣 m 站路径不按类型分：TV 也用 movie/subject/（tv/ 404，
+		// 实锤 37421775），两种都试以防万一。
+		for _, p := range []string{"movie", "tv"} {
+			mobileURL := "https://m.douban.com/" + p + "/subject/" + id + "/"
+			doc, e := fetchDoc(mobileURL)
+			if e != nil {
+				continue
+			}
 			html, _ := doc.Html()
 			if m := reDesc.FindStringSubmatch(html); len(m) > 1 {
 				if idx := strings.Index(m[1], "简介："); idx >= 0 {
@@ -948,6 +950,9 @@ func fetchDoubanSubject(id, cover string) (map[string]any, error) {
 				} else {
 					intro = strings.TrimSpace(m[1])
 				}
+			}
+			if intro != "" {
+				break
 			}
 		}
 	}
