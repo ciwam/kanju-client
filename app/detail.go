@@ -1,8 +1,6 @@
 package app
 
 import (
-	"fmt"
-	"strings"
 	"time"
 
 	"kanju/client/api"
@@ -297,113 +295,9 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 	}
 }
 
-// playFallback 换源重试：在其它线路里找可播的同集依次尝试解析。
-// 线路整体失效（如量子资源播放域名全部 404）时，同集在其它站源
-// 线路仍可播。全部失败返回最后一个错误。
-//
-// 匹配两级：
-//  1. 同名选集——各站源集数命名一致时（第07集 → 第07集）；
-//  2. 单选集线路——命名粒度不同（正片/HD/全集，通常整部一条流），
-//     点哪集都是同一条源，选集数==1 的线路直接试。
-//     区间型（第01-03集）不参与：无法确定目标集在其中，播放错集。
-func playFallback(cx *core.Scope, a *App, client *api.Client, ep api.Episode, failed api.Channel) (api.PlayResult, error) {
-	return playFallbackWith(cx, a, client.Play, ep, failed)
-}
 
-// normalizeEpisodeTitle 集数标题标准化：全/半角数字统一、去掉数字
-// 前导零与分隔符（"第01集"≡"第1集"、"第 08 集"≡"第8集"）。各站源
-// 对同一部剧的集数命名粒度/格式不同，换源匹配靠它。
-func normalizeEpisodeTitle(t string) string {
-	t = strings.TrimSpace(t)
-	// 全角数字/拉丁转半角。
-	var b strings.Builder
-	for _, r := range t {
-		switch {
-		case r >= '０' && r <= '９':
-			b.WriteRune(rune(r-'０') + '0')
-		case r >= 'Ａ' && r <= 'Ｚ':
-			b.WriteRune(rune(r-'Ａ') + 'A')
-		case r >= 'ａ' && r <= 'ｚ':
-			b.WriteRune(rune(r-'ａ') + 'a')
-		default:
-			b.WriteRune(r)
-		}
-	}
-	t = b.String()
-	// 提取「第 N 集/话/」中的 N 并归一为 第N集；不匹配结构的原样返回
-	// （小写化以便 "EP01"/"ep1" 归一）。
-	lower := strings.ToLower(t)
-	if i := strings.Index(lower, "ep"); i >= 0 {
-		if n := trimLeadingZeros(lower[i+2:]); n != "" {
-			return "ep" + n
-		}
-	}
-	if i := strings.Index(t, "第"); i >= 0 {
-		rest := t[i+3:] // 跳过 "第"（3 字节）
-		end := strings.IndexAny(rest, "集话")
-		if end > 0 {
-			if n := trimLeadingZeros(rest[:end]); n != "" {
-				return "第" + n + "集"
-			}
-		}
-	}
-	return lower
-}
 
-// trimLeadingZeros 去掉纯数字串的前导零（"01"→"1"）；非纯数字返回空。
-func trimLeadingZeros(s string) string {
-	s = strings.TrimSpace(s)
-	digits := strings.TrimLeft(s, "0")
-	for _, r := range digits {
-		if r < '0' || r > '9' {
-			return ""
-		}
-	}
-	if digits == "" {
-		return "0"
-	}
-	return digits
-}
 
-// episodeTitleMatch 两集是否为同一集：标准化后相等。
-func episodeTitleMatch(a, b string) bool {
-	return normalizeEpisodeTitle(a) == normalizeEpisodeTitle(b) && normalizeEpisodeTitle(a) != ""
-}
-
-// playFallbackWith 是 playFallback 的可测形态：play 函数注入。
-// 注意：在后台 goroutine 运行，信号 Set 一律经 cx.Post 投递到 UI
-// 线程——直接 Set 与 UI 线程的渲染 effect 并发修改信号订阅者列表，
-// 是快速连点集数时应用闪退的根因。
-func playFallbackWith(cx *core.Scope, a *App, play func(string) (api.PlayResult, error), ep api.Episode, failed api.Channel) (api.PlayResult, error) {
-	data := a.DetailData.Get()
-	if data == nil {
-		return api.PlayResult{}, fmt.Errorf("获取播放地址失败")
-	}
-	var lastErr error = fmt.Errorf("获取播放地址失败")
-	merged := mergeChannels(data.Channels)
-	for _, ch := range merged {
-		if ch.Name == failed.Name && ch.SourceName == failed.SourceName {
-			continue
-		}
-		for _, cand := range ch.Episodes {
-			if !episodeTitleMatch(cand.Title, ep.Title) && len(ch.Episodes) != 1 {
-				continue // 非同集且非单选集线路：不猜
-			}
-			ClientLog("[detail] 换源重试 %q line=%q(%s) url=%s", ep.Title, ch.Name, ch.SourceName, cand.URL)
-			busy := "当前线路不可用，尝试 " + ch.Name + "…"
-			if cx != nil {
-				cx.Post(func() { a.DetailPlayBusy.Set(busy) })
-			}
-			r, err := play(cand.URL)
-			if err == nil {
-				ClientLog("[detail] 换源成功 line=%q", ch.Name)
-				return r, nil
-			}
-			lastErr = err
-		}
-	}
-	return api.PlayResult{}, lastErr
-}
 
 // favButton 收藏/已收藏切换按钮（状态在 App.DetailFav）。内嵌后端
 // 的收藏接口同样可用（NoAuth 虚拟 admin），不再区分模式。
@@ -606,10 +500,3 @@ func mergeChannels(channels []api.Channel) []api.Channel {
 	return out
 }
 
-// PlayFallbackForTest 供外部测试驱动换源逻辑（play 函数注入）。
-func PlayFallbackForTest(state *App, ep api.Episode, failed api.Channel, play func(string) (api.PlayResult, error)) (api.PlayResult, error) {
-	return playFallbackWith(nil, state, play, ep, failed)
-}
-
-// EpisodeTitleMatchForTest 供外部测试集数标题匹配。
-func EpisodeTitleMatchForTest(a, b string) bool { return episodeTitleMatch(a, b) }

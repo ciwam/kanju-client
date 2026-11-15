@@ -47,13 +47,10 @@ func (a *App) PlayEpisode(cx *core.Scope, ep api.Episode, ch api.Channel) {
 				panic(r)
 			}
 		}()
+		// 不做自动换源：站源/线路由用户明确选择，解析失败直接报错
+		// （换什么源是用户的决定，自动跳到别的站源会播到用户没选的
+		// 版本，且掩盖该站源已失效的事实）。
 		r, err := playOnce(ep.URL)
-		if err != nil {
-			// 换源重试：当前线路的解析失败（地址失效/线路整体下线）时，
-			// 在其它线路里找同名选集依次尝试（如量子资源播放域名整体
-			// 失效，其它站源的同集仍可播）。
-			r, err = playFallbackProbe(cx, a, client, ep, ch, playOnce)
-		}
 		cx.Post(func() {
 			a.DetailPlayBusy.Set("")
 			if err != nil {
@@ -71,10 +68,5 @@ func (a *App) PlayEpisode(cx *core.Scope, ep api.Episode, ch api.Channel) {
 			a.OpenPlayer(a.DetailTitle.Get()+" · "+ep.Title, playURL, ep.URL, ch.SourceName, a.DetailURL.Get())
 		})
 	}()
-}
-
-// playFallbackProbe 带流探测的换源（见 playFallbackWith）。
-func playFallbackProbe(cx *core.Scope, a *App, client *api.Client, ep api.Episode, failed api.Channel, playOnce func(string) (api.PlayResult, error)) (api.PlayResult, error) {
-	return playFallbackWith(cx, a, playOnce, ep, failed)
 }
 
