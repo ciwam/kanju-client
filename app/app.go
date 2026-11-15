@@ -335,6 +335,20 @@ func (a *App) SetServer(cx *core.Scope, base string) {
 func (a *App) OpenDetail(title, cover, detailURL string) {
 	ClientLog("[nav] 打开详情 %q url=%s", title, detailURL)
 	a.prevTab = a.Tab.Get()
+	// 剥掉历史记录标题里混入的集名（存量数据 title 列存过
+	// 「片名 · 集名」全串），避免 DetailTitle 再拼接后重复。
+	title, _ = splitEpisodeTitle(title)
+	// 换影片：清掉上一部影片的播放状态——否则合并页的播放器还在
+	// 放上一部（PlayURL 驱动 Video）。
+	if a.DetailURL.Get() != detailURL {
+		a.PlayURL.Set("")
+		a.PlayEpisodeURL.Set("")
+		a.PlaySource.Set("")
+		a.PlaySourceURL.Set("")
+		a.DetailNowPlaying.Set("")
+		a.DetailPlayBusy.Set("")
+		a.DetailErr.Set("")
+	}
 	a.DetailTitle.Set(title)
 	a.DetailCover.Set(cover)
 	a.DetailURL.Set(detailURL)
