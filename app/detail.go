@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"kanju/client/api"
 	"kanju/client/theme"
@@ -80,19 +81,49 @@ func (a *App) LoadDetail(cx *core.Scope, u, title, cover string) {
 		doubanID = segmentAfter(u, "/subject/")
 	}
 
-	// 豆瓣头部信息：独立加载、独立显示。
+	// 豆瓣头部信息：独立加载、独立显示。SWR 两段式：第一段可能拿到
+	// 缓存旧数据（stale=true），立即显示；第二段强制刷新拉最新，
+	// revision 有变化 → 更新动画（DetailUpdating）→ 自动替换新信息
+	// （缓存已于后端写库，下次直接是新的）。
 	go func() {
 		if doubanID == "" {
 			return
 		}
 		v, err := client.DoubanSubject(doubanID, cover)
+		if err != nil {
+			ClientLog("[detail] douban subject error: %v", err)
+			return
+		}
 		cx.Post(func() {
-			if err != nil {
-				ClientLog("[detail] douban subject error: %v", err)
-				return
-			}
 			a.DetailSubject.Set(&v)
-			ClientLog("[detail] subject ready %q", v.Title)
+			ClientLog("[detail] subject ready %q stale=%v", v.Title, v.Stale)
+		})
+		if !v.Stale {
+			return
+		}
+		// 旧数据已显示；后台强制刷新，revision 变了才替换。
+		nv, err := client.DoubanSubjectRefresh(doubanID, cover)
+		if err != nil {
+			return // 刷新失败静默保留旧数据（后端已重试过 SWR）
+		}
+		cx.Post(func() {
+			if u := a.DetailURL.Get(); u == "" || segmentAfter(u, "/subject/") != doubanID {
+				return // 已切到别的影片，丢弃
+			}
+			if nv.Revision == "" || nv.Revision == v.Revision {
+				return // 内容没变
+			}
+			a.DetailUpdating.Set(true)
+			ClientLog("[detail] subject updated %q (rev %s -> %s)", nv.Title, v.Revision, nv.Revision)
+			// 更新动画停留 1.2 秒后替换新信息（用户要求：动画提示后
+			// 自动替换，信息即时）。
+			go func() {
+				time.Sleep(1200 * time.Millisecond)
+				cx.Post(func() {
+					a.DetailSubject.Set(&nv)
+					a.DetailUpdating.Set(false)
+				})
+			}()
 		})
 	}()
 
@@ -435,6 +466,15 @@ func subjectHead(cx *core.Scope, a *App, s *api.Subject) []core.Node {
 		Children: []core.Node{
 			theme.Title(s.Title, 20, ui.Semibold),
 			favButton(cx, a),
+			// 影片信息后台刷新中（SWR stale→refresh 检测到变化）：
+			// 旋转指示 + 文案，1.2 秒后新信息自动替换。
+			core.Dynamic(func(*core.Scope) core.Node {
+				if !a.DetailUpdating.Get() {
+					return core.View{}
+				}
+				return theme.Row(6, ui.Spinner{},
+					ui.Text("影片信息已更新，正在刷新…", 12, ui.Regular, func() core.Color { return cx.Palette().Accent }))
+			}),
 		},
 	}}
 	meta := s.Year

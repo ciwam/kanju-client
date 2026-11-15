@@ -28,6 +28,7 @@ func (s *Server) cleanupDB() {
 	s.cleanupOldHistory()
 	s.cleanupAvailCacheDB()
 	cleanupPosterCache()
+	s.cleanupSubjectCache()
 }
 
 // cleanupOldHistory 删除超过保留期的历史记录。cutoff 用 Go 生成的

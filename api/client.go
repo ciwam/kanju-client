@@ -443,13 +443,30 @@ type Subject struct {
 	Duration  string   `json:"duration"`
 	Subtype   string   `json:"subtype"`
 	Intro     string   `json:"intro"`
+	// 缓存元信息：stale=true 表示这次是缓存旧数据（后台已在刷新）；
+	// Revision 是内容指纹，客户端对比新旧判断"信息有更新"。
+	Stale    bool   `json:"stale,omitempty"`
+	Revision string `json:"revision,omitempty"`
 }
 
 func (c *Client) DoubanSubject(id, cover string) (Subject, error) {
+	return c.doubanSubject(id, cover, false)
+}
+
+// DoubanSubjectRefresh 强制绕过缓存拉取最新（SWR 第二段：客户端收到
+// stale 旧数据后调用，对比 Revision 判断是否更新）。
+func (c *Client) DoubanSubjectRefresh(id, cover string) (Subject, error) {
+	return c.doubanSubject(id, cover, true)
+}
+
+func (c *Client) doubanSubject(id, cover string, refresh bool) (Subject, error) {
 	q := url.Values{}
 	q.Set("id", id)
 	if cover != "" {
 		q.Set("cover", cover)
+	}
+	if refresh {
+		q.Set("refresh", "1")
 	}
 	var s Subject
 	err := c.doJSON(http.MethodGet, "/api/douban/subject?"+q.Encode(), nil, &s)

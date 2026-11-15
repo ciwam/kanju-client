@@ -814,14 +814,79 @@ func (s *Server) handleDoubanSubject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cover := q.Get("cover")
+	refresh := q.Get("refresh") == "1"
+
+	// 缓存优先：命中且新鲜（或强制刷新关闭时命中即回），未命中才走
+	// 网络。过期命中仍先返回旧数据（SWR），后台静默刷新写库——客户端
+	// 靠 revision 感知更新。
+	if !refresh {
+		if payload, fresh, ok := s.subjectCacheGet(id); ok {
+			var data map[string]any
+			if json.Unmarshal(payload, &data) == nil && len(data) > 0 {
+				// stale/revision 同时放 data 内（客户端 Subject 结构直解）
+				// 与顶层（调试直观）。
+				if !fresh {
+					data["stale"] = true
+					if rev := subjectCacheGetRevisionStable(s, id); rev != "" {
+						data["revision"] = rev
+					}
+					go s.refreshSubject(id, cover)
+				}
+				writeJSON(w, 200, map[string]any{"isSuccess": true, "data": data, "revision": data["revision"]})
+				return
+			}
+		}
+	}
+
+	data, err := fetchDoubanSubject(id, cover)
+	if err != nil {
+		// 网络失败但有旧缓存：返回旧数据（标记 stale），不白屏。
+		if payload, _, ok := s.subjectCacheGet(id); ok {
+			var old map[string]any
+			if json.Unmarshal(payload, &old) == nil && len(old) > 0 {
+				old["stale"] = true
+				if rev := subjectCacheGetRevisionStable(s, id); rev != "" {
+					old["revision"] = rev
+				}
+				writeJSON(w, 200, map[string]any{"isSuccess": true, "data": old})
+				return
+			}
+		}
+		writeJSON(w, 200, fail("获取影片详情失败"))
+		return
+	}
+	rev := s.subjectCachePut(id, marshalStable(data))
+	writeJSON(w, 200, map[string]any{"isSuccess": true, "data": data, "revision": rev})
+}
+
+// subjectCacheGetRevisionStable subjectCacheRevision 的 Server 方法别名
+// （保持调用点简洁）。
+func subjectCacheGetRevisionStable(s *Server, id string) string { return s.subjectCacheRevision(id) }
+
+// refreshSubject SWR 后台刷新：单飞，成功写库。失败静默（旧数据仍在）。
+func (s *Server) refreshSubject(id, cover string) {
+	if _, loaded := subjectRefreshInFlight.LoadOrStore(id, true); loaded {
+		return
+	}
+	defer subjectRefreshInFlight.Delete(id)
+	data, err := fetchDoubanSubject(id, cover)
+	if err != nil {
+		logInfo("subject refresh %s failed: %v", id, err)
+		return
+	}
+	s.subjectCachePut(id, marshalStable(data))
+}
+
+// fetchDoubanSubject 抓取豆瓣影片详情并组装为响应 data（原
+// handleDoubanSubject 的网络与组装段，缓存逻辑拆出后独立可复用）。
+func fetchDoubanSubject(id, cover string) (map[string]any, error) {
 	apiURL := "https://movie.douban.com/j/subject_abstract?subject_id=" + url.QueryEscape(id)
 	req, _ := http.NewRequest(http.MethodGet, apiURL, nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 	req.Header.Set("Referer", "https://movie.douban.com/")
 	resp, err := safeHTTPClient(10 * time.Second).Do(req)
 	if err != nil {
-		writeJSON(w, 200, fail("获取影片详情失败"))
-		return
+		return nil, err
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, maxFetchBodyBytes))
@@ -830,8 +895,7 @@ func (s *Server) handleDoubanSubject(w http.ResponseWriter, r *http.Request) {
 		Subject map[string]any `json:"subject"`
 	}
 	if err := json.Unmarshal(b, &obj); err != nil || obj.R != 0 {
-		writeJSON(w, 200, fail("获取详情失败"))
-		return
+		return nil, fmt.Errorf("bad subject response")
 	}
 	subject := obj.Subject
 	data := map[string]any{}
@@ -888,7 +952,7 @@ func (s *Server) handleDoubanSubject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	data["intro"] = sanitizeIntro(intro)
-	writeJSON(w, 200, map[string]any{"isSuccess": true, "data": data})
+	return data, nil
 }
 
 func fetchDoc(rawURL string) (*goquery.Document, error) {

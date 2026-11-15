@@ -56,6 +56,9 @@ type App struct {
 	// DetailFav 当前详情是否已收藏；DetailNowPlaying 当前正在播的选集 URL（高亮用）。
 	DetailFav        *core.Signal[bool]
 	DetailNowPlaying *core.Signal[string]
+	// DetailUpdating 影片信息后台刷新中（SWR：缓存先显示，刷新完自动
+	// 替换）——详情页头部显示旋转指示的依据。
+	DetailUpdating *core.Signal[bool]
 
 	// 播放器入参。PlayURL 是交给播放器的（代理改写后）地址；
 	// PlayEpisodeURL 是原始选集 URL，作为历史/续播的稳定匹配键。
@@ -132,6 +135,7 @@ func SetupForTest(cx *core.Scope, base string) *App {
 		DetailPlayBusy:     core.NewSignal(cx, ""),
 		DetailFav:          core.NewSignal(cx, false),
 		DetailNowPlaying:   core.NewSignal(cx, ""),
+		DetailUpdating:     core.NewSignal(cx, false),
 		PlayTitle:          core.NewSignal(cx, ""),
 		PlayEpisodeURL:     core.NewSignal(cx, ""),
 		PlayURL:            core.NewSignal(cx, ""),

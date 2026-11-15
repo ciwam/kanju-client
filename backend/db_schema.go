@@ -240,6 +240,13 @@ func (s *Server) migrate() error {
 			items TEXT NOT NULL,
 			fetched_at TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS douban_subject (
+			douban_id  TEXT PRIMARY KEY,
+			title      TEXT,
+			payload    TEXT NOT NULL,
+			revision   TEXT,
+			fetched_at TEXT NOT NULL
+		)`,
 		`CREATE TABLE IF NOT EXISTS avail_cache (
 			source_name TEXT NOT NULL,
 			base_url TEXT NOT NULL,
