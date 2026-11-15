@@ -53,7 +53,9 @@ func newPlayerState(cx *core.Scope, volume float64, rate float32) *playerState {
 }
 
 // Player 播放页：自绘控制栏（播放/暂停、进度条、音量）、续播、错误重试、全屏。
-func Player(cx *core.Scope, a *App) core.Node {
+// PlayerSurface 播放器组件（视频+控制栏+角标），嵌入详情页使用。
+// 状态（音量/倍速/进度）在组件 scope 上，随详情页常驻存活。
+func PlayerSurface(cx *core.Scope, a *App) core.Node {
 	// 恢复上次的音量/倍速。
 	store := cx.Storage()
 	vol := 1.0
@@ -69,11 +71,11 @@ func Player(cx *core.Scope, a *App) core.Node {
 		}
 	}
 	st := newPlayerState(cx, vol, rate)
-	// 离开播放页签即暂停：页签常驻显隐（shellPages）后本页只是
-	// DisplayNone，Video/AVPlayer 仍活着会继续出声——切走时置 paused，
-	// 回来按播放键继续（进度与状态保留，不重新拉流）。
+	// 离开详情页签即暂停：详情与播放已合并单页（B 站形态），页签
+	// 常驻显隐后本页只是 DisplayNone，Video/AVPlayer 仍活着会继续
+	// 出声——切走时置 paused，回来按播放键继续（进度与状态保留）。
 	cx.Effect(func() {
-		if a.Tab.Get() != "player" {
+		if a.Tab.Get() != "detail" {
 			core.Untracked(cx, func() bool {
 				st.paused.Set(true)
 				return true
@@ -218,7 +220,6 @@ func Player(cx *core.Scope, a *App) core.Node {
 			return theme.Fill().Merge(core.Style{Gap: 0, Overflow: core.Hidden})
 		},
 		Children: []core.Node{core.Dynamic(func(*core.Scope) core.Node {
-			title := a.PlayTitle.Get()
 			// Video 常驻：src 用 SourceFunc 响应式更新而非 Dynamic 重建。
 			// 页签常驻显隐后（shellPages），本页 DisplayNone 期间
 			// renderEffect 挂起——若靠 Dynamic 重跑建 Video，Set PlayURL
@@ -269,67 +270,12 @@ func Player(cx *core.Scope, a *App) core.Node {
 				},
 			}
 
-			// 全屏适配：desktop.FullScreen 的读取只在 StyleFunc 里——
-			// Dynamic 重跑是整个子树销毁重建（mountDynamic: Dispose+
-			// clear+mount，无 diff-patch），若在这里读 FullScreen，每次
-			// 全屏切换都会重建 Video（AVPlayer 重新开流，从头播放）。
-			// StyleFunc 的重算只是样式提交，子树存活。
-			titleRow := core.View{
-				StyleFunc: func() core.Style {
-					// 全屏时标题行隐藏（样式提交，子树保留）。
-					if desktop.FullScreen(cx) {
-						return core.Style{Display: core.DisplayNone}
-					}
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}
-				},
-				Children: []core.Node{
-					theme.Title(title, 15, ui.Semibold),
-				},
-			}
+			// 全屏适配说明：desktop.FullScreen 的读取只在 StyleFunc 里
+			// （detail 页容器负责），此处不在 Dynamic 读全屏信号——
+			// Dynamic 重跑是整个子树销毁重建（无 diff-patch），
+			// 会重建 Video（AVPlayer 重新开流，从头播放）。
 
-			// B 站桌面版播放页双栏：左视频列（标题+播放器），右侧固定
-			// 宽选集列表；全屏时右栏与 padding 收起（样式提交）。
-			sidebar := core.View{
-				StyleFunc: func() core.Style {
-					p := cx.Palette()
-					st := core.Style{
-						Width: core.Pt(300), FlexShrink: 0,
-						Padding: core.All(8), Gap: 4,
-						Background:  p.Background,
-						BorderColor: p.Border, BorderWidth: 0, BorderStyle: core.BorderSolid,
-					}
-					if desktop.FullScreen(cx) {
-						st.Display = core.DisplayNone
-					}
-					return st
-				},
-				Children: []core.Node{episodeSidebar(cx, a)},
-			}
-
-			return core.View{
-				StyleFunc: func() core.Style {
-					st := core.Style{Direction: core.Row, Gap: 10, FlexGrow: 1, FlexShrink: 1,
-						Padding: core.Symmetric(8, 12), Overflow: core.Hidden}
-					if desktop.FullScreen(cx) {
-						st.Padding = core.All(0)
-						st.Gap = 0
-					}
-					return st
-				},
-				Children: []core.Node{
-					core.View{
-						StyleFunc: func() core.Style {
-							st := core.Style{Gap: 6, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
-							if desktop.FullScreen(cx) {
-								st.Gap = 0
-							}
-							return st
-						},
-						Children: []core.Node{titleRow, playerArea},
-					},
-					sidebar,
-				},
-			}
+			return playerArea
 		})},
 	}
 }
@@ -654,7 +600,6 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 			}
 		}
 		nowPlaying := a.DetailNowPlaying.Get()
-		cx2 := cx
 		var items []core.Node
 		for _, ch := range mergeChannels(d.Channels) {
 			ch := ch
@@ -669,7 +614,7 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 				current := ep.URL != "" && ep.URL == nowPlaying
 				items = append(items, core.View{
 					StyleFunc: func() core.Style {
-						p := cx2.Palette()
+						p := cx.Palette()
 						st := core.Style{
 							Direction: core.Row, AlignItems: core.AlignCenter,
 							Padding: core.Symmetric(6, 10), CornerRadius: 6,
@@ -683,7 +628,7 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 						return st
 					},
 					Children: []core.Node{core.Text{Content: ep.Title, Style: core.Style{FontSize: 12}}},
-					OnPress:  func(core.PressEvent) { a.PlayEpisode(cx2, ep, ch) },
+					OnPress:  func(core.PressEvent) { a.PlayEpisode(cx, ep, ch) },
 				})
 			}
 		}

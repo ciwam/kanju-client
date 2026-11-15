@@ -267,8 +267,8 @@ func TestPlayFallbackSingleEpisode(t *testing.T) {
 	}
 }
 
-// TestOpenPlayerMountsPlayer 回归：OpenPlayer 后 Shell 必须切到 player
-// 页签（曾因 Tab 变化被 detail 页的 render effect 抢先吞掉而不挂载）。
+// TestOpenPlayerMountsPlayer 回归：OpenPlayer 就地播放（单页形态）——
+// 从 home 进入时切到 detail 页签且 detail 页内挂载 Video。
 func TestOpenPlayerMountsPlayer(t *testing.T) {
 	var state *app.App
 	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
@@ -283,11 +283,11 @@ func TestOpenPlayerMountsPlayer(t *testing.T) {
 	})
 	a.Settle()
 	a.Settle()
-	if state.Tab.Get() != "player" {
-		t.Fatalf("Tab 应为 player，实际 %q", state.Tab.Get())
+	if state.Tab.Get() != "detail" {
+		t.Fatalf("Tab 应为 detail（就地播放），实际 %q", state.Tab.Get())
 	}
 	if len(a.QueryMounted("id:video")) == 0 {
-		t.Fatalf("播放器未挂载 Video 节点。渲染树:\n%s", a.Dump())
+		t.Fatalf("详情页未挂载 Video 节点。渲染树:\n%s", a.Dump())
 	}
 }
 
@@ -320,17 +320,17 @@ func TestOpenPlayerDuringDetailActivity(t *testing.T) {
 	a.Settle()
 	a.Settle()
 	a.Settle()
-	if state.Tab.Get() != "player" {
-		t.Fatalf("Tab 应为 player，实际 %q", state.Tab.Get())
+	if state.Tab.Get() != "detail" {
+		t.Fatalf("Tab 应为 detail（就地播放），实际 %q", state.Tab.Get())
 	}
 	if len(a.QueryMounted("id:video")) == 0 {
-		t.Fatalf("播放器未挂载。渲染树:\n%s", a.Dump())
+		t.Fatalf("详情页未挂载 Video。渲染树:\n%s", a.Dump())
 	}
 }
 
-// TestBackNoPingPong 导航历史回归：home→detail→player 后，player 返回
-// 到 detail，detail 再返回应回 home（而非 prevTab 被 Navigate 覆盖成
-// player 后的乒乓循环）。
+// TestBackNoPingPong 导航历史回归：home→detail→（就地播放，单页形态
+// 不切页签）→detail 返回应回 home。合并前 OpenPlayer 切 player 页签
+// 时曾因 prevTab 被 Navigate 覆盖形成 detail↔player 乒乓。
 func TestBackNoPingPong(t *testing.T) {
 	var state *app.App
 	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
@@ -347,13 +347,8 @@ func TestBackNoPingPong(t *testing.T) {
 	}
 	a.Post(func() { state.OpenPlayer("测试片 · 第01集", "http://127.0.0.1:1/v.m3u8", "https://ep.example/1", "源", "https://detail.example/1") })
 	a.Settle()
-	if state.Tab.Get() != "player" {
-		t.Fatalf("应进 player，实际 %q", state.Tab.Get())
-	}
-	a.Post(func() { state.Back() })
-	a.Settle()
 	if state.Tab.Get() != "detail" {
-		t.Fatalf("player 返回应到 detail，实际 %q", state.Tab.Get())
+		t.Fatalf("就地播放应留在 detail，实际 %q", state.Tab.Get())
 	}
 	a.Post(func() { state.Back() })
 	a.Settle()

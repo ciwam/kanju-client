@@ -178,11 +178,10 @@ func shellPages(cx *core.Scope, a *App) core.Node {
 	homeHistory := core.View{StyleFunc: pageStyle(func() bool { return tab.Get() == "home" && homeView.Get() == "history" }), Children: []core.Node{historyPanel(cx, a)}}
 	homeFavorites := core.View{StyleFunc: pageStyle(func() bool { return tab.Get() == "home" && homeView.Get() == "favorites" }), Children: []core.Node{favoritesPanel(cx, a)}}
 	detailPage := core.View{StyleFunc: pageStyle(func() bool { return tab.Get() == "detail" }), Children: []core.Node{SubjectDetail(cx, a)}}
-	playerPage := core.View{StyleFunc: pageStyle(func() bool { return tab.Get() == "player" }), Children: []core.Node{Player(cx, a)}}
 	settingsPage := core.View{StyleFunc: pageStyle(func() bool { return tab.Get() == "settings" }), Children: []core.Node{Settings(cx, a)}}
 	return core.View{
 		Style:    core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden},
-		Children: []core.Node{homeBrowse, homeSearch, homeHistory, homeFavorites, detailPage, playerPage, settingsPage},
+		Children: []core.Node{homeBrowse, homeSearch, homeHistory, homeFavorites, detailPage, settingsPage},
 	}
 }
 

@@ -162,83 +162,123 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 		StyleFunc: func() core.Style {
 			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 12, Overflow: core.Hidden})
 		},
-		Children: []core.Node{core.Dynamic(func(*core.Scope) core.Node {
-			// 渲染快照：每次 Dynamic 重跑记录当前状态与数据量。
-			dNow := a.DetailData.Get()
-			chCount, epCount := 0, 0
-			if dNow != nil {
-				chCount = len(dNow.Channels)
-				for _, c := range dNow.Channels {
-					epCount += len(c.Episodes)
+		Children: []core.Node{episodeWatchPage(cx, a)},
+	}
+}
+
+// episodeWatchPage B 站视频页单页布局：上双栏（左播放器/封面、右选集
+// 列表），下信息与线路卡片。数据与渲染快照日志同原 SubjectDetail。
+func episodeWatchPage(cx *core.Scope, a *App) core.Node {
+	// 结构常驻：播放器组件不进 Dynamic（重跑会销毁重建 Video 导致
+	// 重播，见 docs/nsgo-bugs.md 限制节）；变化的部分（头部信息、
+	// 线路列表、封面覆盖层）各自用 Dynamic 包裹。
+
+	// 上双栏：左播放器 + 右选集列表。
+	playerPane := core.View{
+		StyleFunc: func() core.Style {
+			return core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden, CornerRadius: 8, Background: core.RGB(0x000000)}
+		},
+		Children: []core.Node{
+			PlayerSurface(cx, a),
+			// 未播放时的封面覆盖层（PlayURL 空且有封面时显示）。
+			core.Dynamic(func(*core.Scope) core.Node {
+				if a.PlayURL.Get() != "" {
+					return core.View{}
 				}
-			}
-			ClientLog("[detail] render url=%q subject=%v detail=%v(线路%d/选集%d) loading=%v playBusy=%q err=%q",
-				a.DetailURL.Get(), a.DetailSubject.Get() != nil, dNow != nil,
-				chCount, epCount, a.DetailLoading.Get(), a.DetailPlayBusy.Get(), a.DetailErr.Get())
-			if u := a.DetailURL.Get(); u == "" {
-				return theme.Empty(cx, "从首页或搜索选择一部影片")
-			}
-			s := a.DetailSubject.Get()
-			d := a.DetailData.Get()
-			// 豆瓣失败时用聚合响应的 cover/intro 兜底，保证标题下有介绍。
-			var head []core.Node
-			if s != nil {
-				if s.Intro == "" && d != nil && d.Intro != "" {
-					s.Intro = d.Intro
+				cover := a.DetailCover.Get()
+				if s := a.DetailSubject.Get(); s != nil && s.Cover != "" {
+					cover = s.Cover
 				}
-				if s.Cover == "" && d != nil && d.Cover != "" {
-					s.Cover = d.Cover
-				}
-				head = append(head, subjectHead(cx, a, s)...)
-			} else if d != nil && (d.Intro != "" || d.Cover != "") {
-				// 豆瓣没数据但聚合带了 cover/intro：渲染纯文字头部 + 简介。
-				cover := d.Cover
 				if cover == "" {
-					cover = a.DetailCover.Get()
+					return core.View{}
 				}
-				head = append(head, fallbackHead(cx, a, a.DetailTitle.Get(), cover, d.Intro))
-			} else {
-				head = append(head, theme.Title(a.DetailTitle.Get(), 20, ui.Semibold))
-			}
-			// 返回按钮在全局顶栏（appTopBar，非 home 页签时显示），
-			// 页面内不再重复放。
-			children := append([]core.Node{}, head...)
-
-			children = append(children,
-				core.Dynamic(func(*core.Scope) core.Node {
-					switch {
-					case a.DetailLoading.Get():
-						return theme.Row(8, ui.Spinner{}, ui.Text("正在聚合站源…", 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }))
-					case a.DetailErr.Get() != "":
-						return ui.Text(a.DetailErr.Get(), 13, ui.Regular, func() core.Color { return cx.Palette().Danger })
-					case a.DetailPlayBusy.Get() != "":
-						return theme.Row(8, ui.Spinner{}, ui.Text(a.DetailPlayBusy.Get(), 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }))
-					default:
-						return core.View{}
-					}
-				}),
-			)
-
-			if d != nil {
-				if len(d.Channels) > 0 {
-					for _, ch := range mergeChannels(d.Channels) {
-						ch := ch
-						children = append(children, channelSection(cx, a, ch, func(ep api.Episode, ch2 api.Channel) { a.PlayEpisode(cx, ep, ch2) }))
-					}
-				} else if !a.DetailLoading.Get() {
-					// 聚合完成但没有可播资源：给搜索兜底入口。
-					children = append(children, theme.Card(cx,
-						theme.Title("未找到播放资源", 14, ui.Semibold),
-						ui.Text("各站源都没有收录这部影片，试试直接搜索片名", 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
-						ui.Button{Text: "去搜索", Variant: ui.ButtonSecondary,
-							OnPress: func() { a.OpenSearch(a.DetailTitle.Get()) }},
-					))
+				return core.View{
+					Style: core.Style{Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Top: core.Pt(0), Bottom: core.Pt(0),
+						AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+						Background: core.RGB(0x111111)},
+					Children: []core.Node{
+						theme.Poster(a.API.ImageURL(cover, a.DetailTitle.Get()), a.DetailTitle.Get(), 160, 224),
+					},
 				}
+			}),
+		},
+	}
+
+	watchRow := core.View{
+		StyleFunc: func() core.Style {
+			return core.Style{Direction: core.Row, Gap: 12, FlexGrow: 1, FlexShrink: 0, Height: core.Pt(460), Overflow: core.Hidden}
+		},
+		Children: []core.Node{
+			playerPane,
+			core.View{
+				StyleFunc: func() core.Style {
+					p := cx.Palette()
+					return core.Style{
+						Width: core.Pt(320), FlexShrink: 0, Padding: core.All(8), Gap: 4,
+						Background: p.Background, CornerRadius: 8, Overflow: core.Hidden,
+					}
+				},
+				Children: []core.Node{episodeSidebar(cx, a)},
+			},
+		},
+	}
+
+	// 下区：标题信息 + 状态 + 线路卡片（Dynamic：随聚合数据更新）。
+	infoSection := core.Dynamic(func(*core.Scope) core.Node {
+		children := []core.Node{}
+		s := a.DetailSubject.Get()
+		d := a.DetailData.Get()
+		if s != nil {
+			if s.Intro == "" && d != nil && d.Intro != "" {
+				s.Intro = d.Intro
 			}
-			return core.Scroll{Style: core.Style{FlexGrow: 1, FlexShrink: 1}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 14, Padding: core.All(0)}, Children: children},
-			}}
-		})},
+			if s.Cover == "" && d != nil && d.Cover != "" {
+				s.Cover = d.Cover
+			}
+			children = append(children, subjectHead(cx, a, s)...)
+		} else if d != nil && (d.Intro != "" || d.Cover != "") {
+			children = append(children, fallbackHead(cx, a, a.DetailTitle.Get(), d.Cover, d.Intro))
+		} else {
+			children = append(children, theme.Title(a.DetailTitle.Get(), 22, ui.Semibold))
+		}
+
+		children = append(children, core.Dynamic(func(*core.Scope) core.Node {
+			switch {
+			case a.DetailLoading.Get():
+				return theme.Row(8, ui.Spinner{}, ui.Text("正在聚合站源…", 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }))
+			case a.DetailErr.Get() != "":
+				return ui.Text(a.DetailErr.Get(), 13, ui.Regular, func() core.Color { return cx.Palette().Danger })
+			case a.DetailPlayBusy.Get() != "":
+				return theme.Row(8, ui.Spinner{}, ui.Text(a.DetailPlayBusy.Get(), 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }))
+			default:
+				return core.View{}
+			}
+		}))
+
+		if d != nil {
+			if len(d.Channels) > 0 {
+				for _, ch := range mergeChannels(d.Channels) {
+					ch := ch
+					children = append(children, channelSection(cx, a, ch, func(ep api.Episode, ch2 api.Channel) { a.PlayEpisode(cx, ep, ch2) }))
+				}
+			} else if !a.DetailLoading.Get() {
+				children = append(children, theme.Card(cx,
+					theme.Title("未找到播放资源", 14, ui.Semibold),
+					ui.Text("各站源都没有收录这部影片，试试直接搜索片名", 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
+					ui.Button{Text: "去搜索", Variant: ui.ButtonSecondary,
+						OnPress: func() { a.OpenSearch(a.DetailTitle.Get()) }},
+				))
+			}
+		}
+		return core.View{Style: core.Style{Gap: 14}, Children: children}
+	})
+
+	return core.View{
+		Style:     core.Style{Gap: 12, Overflow: core.Hidden},
+		Children: []core.Node{
+			watchRow,
+			core.Scroll{Style: core.Style{FlexGrow: 1, FlexShrink: 1}, Children: []core.Node{infoSection}},
+		},
 	}
 }
 

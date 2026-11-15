@@ -334,15 +334,18 @@ func (a *App) OpenDetail(title, cover, detailURL string) {
 	a.Tab.Set("detail")
 }
 
-// OpenPlayer 记录播放上下文并跳到播放器。episodeURL 是原始选集
-// 地址（历史/续播的稳定匹配键），playURL 是代理改写后的播放地址。
+// OpenPlayer 记录播放上下文并就地播放（B 站视频页单页形态：详情与
+// 播放合并，不切页签）。已在 detail 页签则只更新信号（Video 由
+// PlayURL 驱动换源）；不在则切回 detail（历史/直播入口）。
+// episodeURL 是原始选集地址（历史/续播的稳定匹配键）。
 func (a *App) OpenPlayer(title, playURL, episodeURL, sourceName, sourceURL string) {
 	ClientLog("[nav] 播放 %q url=%s 来源=%s", title, playURL, sourceName)
-	a.prevTab = a.Tab.Get()
 	a.PlayTitle.Set(title)
 	a.PlayEpisodeURL.Set(episodeURL)
 	a.PlayURL.Set(playURL)
 	a.PlaySource.Set(sourceName)
 	a.PlaySourceURL.Set(sourceURL)
-	a.Tab.Set("player")
+	if a.Tab.Get() != "detail" {
+		a.Tab.Set("detail")
+	}
 }
