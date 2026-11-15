@@ -588,50 +588,134 @@ func (a *App) IsPlayerPausedForTest() bool {
 // 线路/选集，当前播放集高亮，点击直接切换播放（复用 PlayEpisode 链路
 // 含流探测与换源）。无数据（直接从历史进入）时显示提示。
 func episodeSidebar(cx *core.Scope, a *App) core.Node {
+	// 简介展开态（面板局部信号）。
+	introExpanded := core.NewSignal(cx, false)
 	return core.Dynamic(func(*core.Scope) core.Node {
+		s := a.DetailSubject.Get()
 		d := a.DetailData.Get()
-		if d == nil || len(d.Channels) == 0 {
-			return core.View{
-				Style: core.Style{AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, FlexGrow: 1},
-				Children: []core.Node{core.Text{
-					Content: "从详情页选择一集后，这里显示全部选集",
-					Style:   core.Style{FontSize: 12, Color: cx.Palette().TextMuted},
-				}},
-			}
-		}
 		nowPlaying := a.DetailNowPlaying.Get()
-		var items []core.Node
-		for _, ch := range mergeChannels(d.Channels) {
-			ch := ch
-			// 线路头：来源+线路名。
-			items = append(items, core.View{
-				Style: core.Style{Padding: core.Symmetric(4, 8)},
-				Children: []core.Node{theme.Title(
-					ch.SourceName+" · "+ch.Name, 12, ui.Semibold)},
-			})
-			for _, ep := range ch.Episodes {
-				ep := ep
-				current := ep.URL != "" && ep.URL == nowPlaying
-				items = append(items, core.View{
-					StyleFunc: func() core.Style {
-						p := cx.Palette()
-						st := core.Style{
-							Direction: core.Row, AlignItems: core.AlignCenter,
-							Padding: core.Symmetric(6, 10), CornerRadius: 6,
-							Background: p.Background, Color: p.Text,
-							Hover: &core.Style{Background: p.SurfaceHover},
-						}
-						if current {
-							st.Background = p.Accent
-							st.Color = p.AccentText
-						}
-						return st
-					},
-					Children: []core.Node{core.Text{Content: ep.Title, Style: core.Style{FontSize: 12}}},
-					OnPress:  func(core.PressEvent) { a.PlayEpisode(cx, ep, ch) },
+
+		// 顶部：标题 + meta + 简介（ subject 优先，聚合兜底）。
+		title := a.DetailTitle.Get()
+		intro := ""
+		meta := ""
+		if s != nil {
+			title = s.Title
+			intro = s.Intro
+			meta = s.Year
+			if s.Rating != "" {
+				meta += (prefixSep(meta)) + "★ " + s.Rating
+			}
+			if s.Region != "" {
+				meta += " · " + s.Region
+			}
+			if s.Episodes != "" {
+				meta += " · " + s.Episodes + "集"
+			}
+		} else if d != nil && d.Intro != "" {
+			intro = d.Intro
+		}
+
+		head := []core.Node{
+			theme.Title(title, 16, ui.Semibold),
+		}
+		if meta != "" {
+			head = append(head, ui.Text(meta, 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }))
+		}
+		if intro != "" {
+			// 简介折叠：超过 84 字（约 3 行）默认截断，点击展开/收起。
+			long := len([]rune(intro)) > 84
+			text := intro
+			action := ""
+			if long && !introExpanded.Get() {
+				text = string([]rune(intro)[:84]) + "…"
+				action = "展开"
+			} else if long {
+				action = "收起"
+			}
+			row := []core.Node{core.Text{
+				Content: text,
+				Style:   core.Style{FontSize: 12, Color: cx.Palette().TextMuted, LineHeight: 20, FlexShrink: 1},
+			}}
+			if action != "" {
+				row = append(row, core.Text{
+					Content: action,
+					Style:   core.Style{FontSize: 12, Color: cx.Palette().Accent, FlexShrink: 0},
 				})
 			}
+			head = append(head, core.View{
+				Style: core.Style{Direction: core.Row, Gap: 6},
+				Children: row,
+				OnPress: func(core.PressEvent) {
+					if long {
+						introExpanded.Update(func(b bool) bool { return !b })
+					}
+				},
+			})
 		}
-		return core.Scroll{Style: core.Style{FlexGrow: 1, FlexShrink: 1}, Children: items}
+
+		// 中部：站源选集滚动框（B 站「合集」样式）。
+		epList := []core.Node{}
+		if d != nil {
+			for _, ch := range mergeChannels(d.Channels) {
+				ch := ch
+				epList = append(epList, core.View{
+					Style: core.Style{Padding: core.Symmetric(6, 4)},
+					Children: []core.Node{theme.Title(
+						ch.SourceName+" · "+ch.Name, 12, ui.Semibold)},
+				})
+				for _, ep := range ch.Episodes {
+					ep := ep
+					current := ep.URL != "" && ep.URL == nowPlaying
+					epList = append(epList, core.View{
+						StyleFunc: func() core.Style {
+							p := cx.Palette()
+							st := core.Style{
+								Direction: core.Row, AlignItems: core.AlignCenter,
+								Padding: core.Symmetric(6, 10), CornerRadius: 6,
+								Background: p.Background, Color: p.Text,
+								Hover: &core.Style{Background: p.SurfaceHover},
+							}
+							if current {
+								st.Background = p.Accent
+								st.Color = p.AccentText
+							}
+							return st
+						},
+						Children: []core.Node{core.Text{Content: ep.Title, Style: core.Style{FontSize: 12}}},
+						OnPress:  func(core.PressEvent) { a.PlayEpisode(cx, ep, ch) },
+					})
+				}
+			}
+		} else {
+			epList = append(epList, core.View{
+				Style: core.Style{AlignItems: core.AlignCenter, Padding: core.All(16)},
+				Children: []core.Node{core.Text{
+					Content: "站源聚合中，选集稍后显示…",
+					Style:   core.Style{FontSize: 12, Color: cx.Palette().TextMuted},
+				}},
+			})
+		}
+
+		// 组装：顶部信息（固定）+ 中部选集滚动框（占满剩余）。
+		return core.View{
+			Style: core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden, Gap: 10},
+			Children: []core.Node{
+				core.View{Style: core.Style{Gap: 6, FlexShrink: 0}, Children: head},
+				core.Scroll{
+					Style: core.Style{FlexGrow: 1, FlexShrink: 1, CornerRadius: 8,
+						Background: cx.Palette().Background, Padding: core.All(6)},
+					Children: epList,
+				},
+			},
+		}
 	})
+}
+
+// prefixSep meta 片段拼接分隔符（空串时无分隔）。
+func prefixSep(existing string) string {
+	if existing == "" {
+		return ""
+	}
+	return " · "
 }
