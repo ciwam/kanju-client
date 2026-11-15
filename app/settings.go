@@ -124,7 +124,8 @@ func settingsGeneralPane(cx *core.Scope, a *App) core.Node {
 
 // versionCard 版本与检查更新卡片：显示当前版本，点击检查 GitHub
 // Releases 最新版（tag 形如 v<version>-<时间戳>，比对 version 前缀
-// + 时间戳）。有新版给出下载链接（打开浏览器）。
+// + 时间戳）。有新版给出下载链接——走加速节点（见 ghProxyNodes），
+// 打开前逐节点探测可用性，A 节点不行自动换 B 节点。
 func versionCard(cx *core.Scope) core.Node {
 	app := core.App()
 	checking := core.NewSignal(cx, false)
@@ -184,37 +185,104 @@ func versionCard(cx *core.Scope) core.Node {
 				return core.View{}
 			}
 			return ui.Button{Text: "前往下载", Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
-				OnPress: func() { cx.OpenURL(u, nil) }}
+				OnPress: func() {
+					// 加速下载：探测加速节点（直链经前缀代理），第一个
+					// 能取到数据的节点打开；全挂则退回 GitHub 原链。
+					go openAccelerated(u, cx)
+				}}
 		}),
 	)
+}
+
+// ghProxyNodes GitHub 下载加速节点（前缀式代理：节点/完整 GitHub 链接）。
+// 探测按序尝试，可用（Range GET 返回 206/200）即用；社区公益节点
+// 随时可能失效，失效自动换下一个。gh-proxy.com 实测最稳放首位。
+var ghProxyNodes = []string{
+	"https://gh-proxy.com",
+	"https://ghfast.top",
+	"https://ghproxy.net",
+	"https://github.moeyy.xyz",
+}
+
+// openAccelerated 用第一个可用的加速节点打开下载链接。页面/目录类
+// 链接（releases/latest）只代理资产直链有意义，这类链接直接原样打开。
+func openAccelerated(rawURL string, cx *core.Scope) {
+	if !strings.Contains(rawURL, "/releases/download/") {
+		// 非资产直链（如 releases 页面），代理无法加速，原样打开。
+		cx.OpenURL(rawURL, nil)
+		return
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	for _, node := range ghProxyNodes {
+		proxied := node + "/" + rawURL
+		req, err := http.NewRequest(http.MethodGet, proxied, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Range", "bytes=0-1023") // 只探 1KB，不拉全包
+		resp, err := client.Do(req)
+		if err != nil {
+			ClientLog("[update] 加速节点不可用 %s: %v", node, err)
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+			ClientLog("[update] 加速节点不可用 %s: status %d", node, resp.StatusCode)
+			continue
+		}
+		ClientLog("[update] 加速节点可用 %s，打开下载", node)
+		cx.Post(func() { cx.OpenURL(proxied, nil) })
+		return
+	}
+	// 全部节点失效：退回 GitHub 原链。
+	ClientLog("[update] 加速节点全部不可用，退回 GitHub 原链")
+	cx.Post(func() { cx.OpenURL(rawURL, nil) })
 }
 
 // releaseRepo 发布仓库（release.github，发布脚本与检查更新共用）。
 const releaseRepo = "ciwam/kanju-client"
 
-// fetchLatestRelease 查 GitHub Releases 最新版的 tag 与名称。
-// 未认证请求限额 60 次/小时，检查更新频率足够。
+// fetchLatestRelease 查 GitHub Releases 最新版的 tag 与名称。国内直连
+// api.github.com 常超时，走加速节点链（ghProxyNodes），A 节点失败换
+// B 节点，全部失效退回直连。未认证限额 60 次/小时，检查更新频率足够。
 func fetchLatestRelease() (name, tag string, err error) {
 	client := &http.Client{Timeout: 10 * time.Second}
-	req, _ := http.NewRequest(http.MethodGet,
-		"https://api.github.com/repos/"+releaseRepo+"/releases/latest", nil)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := client.Do(req)
+	apiURL := "https://api.github.com/repos/" + releaseRepo + "/releases/latest"
+	try := func(u string) (string, string, error) {
+		req, err := http.NewRequest(http.MethodGet, u, nil)
+		if err != nil {
+			return "", "", err
+		}
+		req.Header.Set("Accept", "application/vnd.github+json")
+		resp, err := client.Do(req)
+		if err != nil {
+			return "", "", err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return "", "", fmt.Errorf("GitHub 返回 %d", resp.StatusCode)
+		}
+		var r struct {
+			TagName string `json:"tag_name"`
+			Name    string `json:"name"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+			return "", "", err
+		}
+		return r.Name, r.TagName, nil
+	}
+	for _, node := range ghProxyNodes {
+		if n, t, err := try(node + "/" + apiURL); err == nil {
+			ClientLog("[update] 检查更新经加速节点 %s", node)
+			return n, t, nil
+		}
+	}
+	n, t, err := try(apiURL)
 	if err != nil {
 		return "", "", err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("GitHub 返回 %d", resp.StatusCode)
-	}
-	var r struct {
-		TagName string `json:"tag_name"`
-		Name    string `json:"name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return "", "", err
-	}
-	return r.Name, r.TagName, nil
+	ClientLog("[update] 检查更新直连 GitHub（加速节点均不可用）")
+	return n, t, nil
 }
 
 // settingsSourcesPane 站源管理页签（仅管理员可见内容）。
