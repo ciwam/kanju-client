@@ -249,26 +249,33 @@ func Player(cx *core.Scope, a *App) core.Node {
 				},
 			}
 
-			// 全屏时视频铺满：标题行与四周 padding 是窗口模式下的
-			// 导航/呼吸边，全屏后只露背景色（"白边"）。desktop.FullScreen
-			// 是响应式信号，进出全屏各重建一次本子树。
+			// 全屏时视频铺满：标题行隐藏、四周 padding 归零。用
+			// StyleFunc 响应式切换（desktop.FullScreen 是信号），节点
+			// 结构不变——若在这里按全屏与否返回两棵不同的树，Dynamic
+			// 重跑会销毁重建 Video（AVPlayer 重新开流，播放从头开始）。
 			full := desktop.FullScreen(cx)
+			containerStyle := core.Style{Gap: 6, FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(8, 12)}
 			if full {
-				return core.View{
-					Style: core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden},
-					Children: []core.Node{playerArea},
-				}
+				containerStyle = core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
+			}
+			titleRow := core.View{
+				StyleFunc: func() core.Style {
+					// 全屏时标题行隐藏（DisplayNone 不销毁子树，
+					// 返回按钮状态保留）。
+					if desktop.FullScreen(cx) {
+						return core.Style{Display: core.DisplayNone}
+					}
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}
+				},
+				Children: []core.Node{
+					backButton(cx, a),
+					theme.Title(title, 15, ui.Semibold),
+				},
 			}
 
 			return core.View{
-				Style: core.Style{Gap: 6, FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(8, 12)},
-				Children: []core.Node{
-					theme.Row(10,
-						backButton(cx, a),
-						theme.Title(title, 15, ui.Semibold),
-					),
-					playerArea,
-				},
+				Style:    containerStyle,
+				Children: []core.Node{titleRow, playerArea},
 			}
 		})},
 	}
