@@ -68,11 +68,17 @@ build_pkgs() {
         go vet ./...
         echo "==> headless UI 测试"
         # nsgo dispose unlink 竞态（docs/nsgo-bugs.md #7）偶发 panic 使
-        # 整批测试退出，重跑即过——上游修复前自动重试一次。
-        if ! go tool nsgo test -target macos .; then
-            echo "==> 测试偶发失败（框架 dispose 竞态 #7？），自动重跑一次"
-            go tool nsgo test -target macos .
-        fi
+        # 整批测试退出，重跑即过——上游修复前自动重试，最多 3 次
+        # （机器负载高时偶发率上升，1 次不够）。
+        ok=false
+        for i in 1 2 3; do
+            if go tool nsgo test -target macos .; then
+                ok=true
+                break
+            fi
+            [ $i -lt 3 ] && echo "==> 测试偶发失败（框架 dispose 竞态 #7？），重跑第 $((i+1))/3 次"
+        done
+        $ok || { echo "✗ 测试连续 3 次失败"; exit 1; }
     fi
 
     echo "==> 构建 macos_arm64 + android_arm64"
