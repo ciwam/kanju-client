@@ -249,6 +249,17 @@ func Player(cx *core.Scope, a *App) core.Node {
 				},
 			}
 
+			// 全屏时视频铺满：标题行与四周 padding 是窗口模式下的
+			// 导航/呼吸边，全屏后只露背景色（"白边"）。desktop.FullScreen
+			// 是响应式信号，进出全屏各重建一次本子树。
+			full := desktop.FullScreen(cx)
+			if full {
+				return core.View{
+					Style: core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden},
+					Children: []core.Node{playerArea},
+				}
+			}
+
 			return core.View{
 				Style: core.Style{Gap: 6, FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(8, 12)},
 				Children: []core.Node{
