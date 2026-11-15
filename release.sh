@@ -60,8 +60,8 @@ TAG="latest"
 STAMP_MIN=$(($(date +%s) / 60))   # epoch 分钟，单调递增
 STAMP_HUMAN=$(date +%Y%m%d%H%M)   # 人读时间戳，进 Release 名称
 if [ "$MODE" = "build" ]; then
-    sed -i '' -E "s/^(build_number: *)[0-9]+/\\1$STAMP_MIN/" nsgo.yaml
-    echo "==> build_number -> $STAMP_MIN（epoch 分钟，已写回 nsgo.yaml）"
+    sed -i '' -E "s/^(build_number: *)[0-9]+/\\1${STAMP_MIN}/" nsgo.yaml
+    echo "==> build_number -> ${STAMP_MIN}（epoch 分钟，已写回 nsgo.yaml）"
 fi
 
 build_pkgs() {
