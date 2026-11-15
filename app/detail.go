@@ -344,10 +344,11 @@ func playFallbackWith(cx *core.Scope, a *App, play func(string) (api.PlayResult,
 func favButton(cx *core.Scope, a *App) core.Node {
 	return core.Dynamic(func(*core.Scope) core.Node {
 		if a.DetailFav.Get() {
-			return ui.Button{Text: "已收藏", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+			return ui.Button{Text: "已收藏", Variant: ui.ButtonOutline, Size: ui.SizeSmall,
+				Color:   func() core.Color { return theme.AccentBili },
 				OnPress: func() { a.ToggleFav(cx) }}
 		}
-		return ui.Button{Text: "收藏", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+		return ui.Button{Text: "★ 收藏", Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
 			OnPress: func() { a.ToggleFav(cx) }}
 	})
 }
