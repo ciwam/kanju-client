@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"runtime/debug"
 	"strings"
 	"time"
 
@@ -159,66 +158,6 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 		})
 	})
 
-	play := func(ep api.Episode, ch api.Channel) {
-		if a.DetailPlayBusy.Get() != "" {
-			return
-		}
-		ClientLog("[detail] 点选集 %q line=%q", ep.Title, ch.Name)
-		a.DetailPlayBusy.Set("解析播放地址…")
-		client := a.API
-		// playOnce 解析 + 探测代理流：站源解析"成功"但视频 CDN 间歇性
-		// 404 时（nsgo Video 对坏流静默黑屏、不触发 OnError），探测失败
-		// 返回错误走换源，杜绝"不报错也不播放"。
-		playOnce := func(rawURL string) (api.PlayResult, error) {
-			r, err := client.Play(rawURL)
-			if err != nil {
-				return r, err
-			}
-			if r.Type == "iframe" {
-				return r, nil // iframe 交给播放器的网页播放提示
-			}
-			proxyURL := client.PlaybackURL(r.URL, r.Type)
-			if perr := client.ProbeMediaURL(proxyURL); perr != nil {
-				ClientLog("[detail] 流探测失败 %s: %v", proxyURL, perr)
-				return r, perr
-			}
-			return r, nil
-		}
-		go func() {
-			// panic 兜底：换源/探测链路的任何 panic 落日志再抛
-			// （不兜底则整个应用闪退，连现场都没有）。
-			defer func() {
-				if r := recover(); r != nil {
-					ClientLog("[detail] 播放链路 panic: %v\n%s", r, debug.Stack())
-					panic(r)
-				}
-			}()
-			r, err := playOnce(ep.URL)
-			if err != nil {
-				// 换源重试：当前线路的解析失败（地址失效/线路整体下线）时，
-				// 在其它线路里找同名选集依次尝试（如量子资源播放域名整体
-				// 失效，其它站源的同集仍可播）。
-				r, err = playFallbackProbe(cx, a, client, ep, ch, playOnce)
-			}
-			cx.Post(func() {
-				a.DetailPlayBusy.Set("")
-				if err != nil {
-					a.DetailErr.Set(err.Error())
-					return
-				}
-				if r.Type == "iframe" {
-					a.DetailErr.Set("该集只能网页播放，请换线路或选集")
-					return
-				}
-				a.DetailNowPlaying.Set(ep.URL)
-				// 直链按类型改写成代理地址（防盗链/Referer 由代理层处理）。
-				playURL := client.PlaybackURL(r.URL, r.Type)
-				ClientLog("[detail] 播放直链 %s (%s) -> %s", r.URL, r.Type, playURL)
-				a.OpenPlayer(a.DetailTitle.Get()+" · "+ep.Title, playURL, ep.URL, ch.SourceName, a.DetailURL.Get())
-			})
-		}()
-	}
-
 	return core.View{
 		StyleFunc: func() core.Style {
 			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 12, Overflow: core.Hidden})
@@ -284,7 +223,7 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 				if len(d.Channels) > 0 {
 					for _, ch := range mergeChannels(d.Channels) {
 						ch := ch
-						children = append(children, channelSection(cx, a, ch, play))
+						children = append(children, channelSection(cx, a, ch, func(ep api.Episode, ch2 api.Channel) { a.PlayEpisode(cx, ep, ch2) }))
 					}
 				} else if !a.DetailLoading.Get() {
 					// 聚合完成但没有可播资源：给搜索兜底入口。
@@ -314,12 +253,6 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 //     区间型（第01-03集）不参与：无法确定目标集在其中，播放错集。
 func playFallback(cx *core.Scope, a *App, client *api.Client, ep api.Episode, failed api.Channel) (api.PlayResult, error) {
 	return playFallbackWith(cx, a, client.Play, ep, failed)
-}
-
-// playFallbackProbe 带流探测的换源：playOnce 含解析+探测，坏流视同
-// 解析失败继续试下一线路。
-func playFallbackProbe(cx *core.Scope, a *App, client *api.Client, ep api.Episode, failed api.Channel, playOnce func(string) (api.PlayResult, error)) (api.PlayResult, error) {
-	return playFallbackWith(cx, a, playOnce, ep, failed)
 }
 
 // normalizeEpisodeTitle 集数标题标准化：全/半角数字统一、去掉数字
@@ -558,7 +491,7 @@ func channelSection(cx *core.Scope, a *App, ch api.Channel, play func(api.Episod
 					return st
 				},
 				Children: []core.Node{core.Text{Content: ep.Title}},
-				OnPress:  func(core.PressEvent) { play(ep, ch) },
+				OnPress:  func(core.PressEvent) { a.PlayEpisode(cx, ep, ch) },
 			})
 		}
 		children := []core.Node{row}

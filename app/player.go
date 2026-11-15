@@ -287,14 +287,48 @@ func Player(cx *core.Scope, a *App) core.Node {
 				},
 			}
 
+			// B 站桌面版播放页双栏：左视频列（标题+播放器），右侧固定
+			// 宽选集列表；全屏时右栏与 padding 收起（样式提交）。
+			sidebar := core.View{
+				StyleFunc: func() core.Style {
+					p := cx.Palette()
+					st := core.Style{
+						Width: core.Pt(300), FlexShrink: 0,
+						Padding: core.All(8), Gap: 4,
+						Background:  p.Background,
+						BorderColor: p.Border, BorderWidth: 0, BorderStyle: core.BorderSolid,
+					}
+					if desktop.FullScreen(cx) {
+						st.Display = core.DisplayNone
+					}
+					return st
+				},
+				Children: []core.Node{episodeSidebar(cx, a)},
+			}
+
 			return core.View{
 				StyleFunc: func() core.Style {
+					st := core.Style{Direction: core.Row, Gap: 10, FlexGrow: 1, FlexShrink: 1,
+						Padding: core.Symmetric(8, 12), Overflow: core.Hidden}
 					if desktop.FullScreen(cx) {
-						return core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
+						st.Padding = core.All(0)
+						st.Gap = 0
 					}
-					return core.Style{Gap: 6, FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(8, 12)}
+					return st
 				},
-				Children: []core.Node{titleRow, playerArea},
+				Children: []core.Node{
+					core.View{
+						StyleFunc: func() core.Style {
+							st := core.Style{Gap: 6, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
+							if desktop.FullScreen(cx) {
+								st.Gap = 0
+							}
+							return st
+						},
+						Children: []core.Node{titleRow, playerArea},
+					},
+					sidebar,
+				},
 			}
 		})},
 	}
@@ -602,4 +636,57 @@ func (a *App) SetPlayerPausedForTest(v bool) {
 
 func (a *App) IsPlayerPausedForTest() bool {
 	return lastPlayerState == nil || lastPlayerState.paused.Get()
+}
+
+// episodeSidebar 播放器右侧选集列表（B 站「合集」面板）：当前影片的
+// 线路/选集，当前播放集高亮，点击直接切换播放（复用 PlayEpisode 链路
+// 含流探测与换源）。无数据（直接从历史进入）时显示提示。
+func episodeSidebar(cx *core.Scope, a *App) core.Node {
+	return core.Dynamic(func(*core.Scope) core.Node {
+		d := a.DetailData.Get()
+		if d == nil || len(d.Channels) == 0 {
+			return core.View{
+				Style: core.Style{AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, FlexGrow: 1},
+				Children: []core.Node{core.Text{
+					Content: "从详情页选择一集后，这里显示全部选集",
+					Style:   core.Style{FontSize: 12, Color: cx.Palette().TextMuted},
+				}},
+			}
+		}
+		nowPlaying := a.DetailNowPlaying.Get()
+		cx2 := cx
+		var items []core.Node
+		for _, ch := range mergeChannels(d.Channels) {
+			ch := ch
+			// 线路头：来源+线路名。
+			items = append(items, core.View{
+				Style: core.Style{Padding: core.Symmetric(4, 8)},
+				Children: []core.Node{theme.Title(
+					ch.SourceName+" · "+ch.Name, 12, ui.Semibold)},
+			})
+			for _, ep := range ch.Episodes {
+				ep := ep
+				current := ep.URL != "" && ep.URL == nowPlaying
+				items = append(items, core.View{
+					StyleFunc: func() core.Style {
+						p := cx2.Palette()
+						st := core.Style{
+							Direction: core.Row, AlignItems: core.AlignCenter,
+							Padding: core.Symmetric(6, 10), CornerRadius: 6,
+							Background: p.Background, Color: p.Text,
+							Hover: &core.Style{Background: p.SurfaceHover},
+						}
+						if current {
+							st.Background = p.Accent
+							st.Color = p.AccentText
+						}
+						return st
+					},
+					Children: []core.Node{core.Text{Content: ep.Title, Style: core.Style{FontSize: 12}}},
+					OnPress:  func(core.PressEvent) { a.PlayEpisode(cx2, ep, ch) },
+				})
+			}
+		}
+		return core.Scroll{Style: core.Style{FlexGrow: 1, FlexShrink: 1}, Children: items}
+	})
 }

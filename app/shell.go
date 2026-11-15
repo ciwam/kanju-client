@@ -54,16 +54,10 @@ func Shell(cx *core.Scope, a *App) core.Node {
 			return theme.Fill().Merge(core.Style{Overflow: core.Hidden})
 		},
 		Children: []core.Node{
-			// 播放器页签时顶栏隐藏（全屏沉浸，返回靠页面内控制栏）。
+			// 全局顶栏常显（B 站桌面版样式，播放页也显示——返回保底）。
 			core.View{
-				StyleFunc: func() core.Style {
-					st := appBarStyle(cx)
-					if a.Tab.Get() == "player" {
-						st.Display = core.DisplayNone
-					}
-					return st
-				},
-				Children: []core.Node{appTopBar(cx, a)},
+				StyleFunc: func() core.Style { return appBarStyle(cx) },
+				Children:  []core.Node{appTopBar(cx, a)},
 			},
 			shellPages(cx, a),
 		},
