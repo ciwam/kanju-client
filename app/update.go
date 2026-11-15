@@ -261,10 +261,13 @@ func (a *App) runUpdate(cx *core.Scope, u *updateState) {
 }
 
 // updateDialog 下载进度弹窗（u.active 时由 versionCard 渲染）。
+// Animation 用 ModalFade：默认的 ModalSlide 从底部滑入，检查在弹窗
+// 展开动画期间就跑完了，短暂新版弹窗一闪而过看不出过程。
 func updateDialog(cx *core.Scope, u *updateState) core.Node {
 	return core.Modal{
 		NoCloseOnBackdropPress: true,
 		NoCloseOnEscape:        true,
+		Animation:              core.ModalNone,
 		StyleFunc: func() core.Style {
 			p := cx.Palette()
 			return core.Style{
