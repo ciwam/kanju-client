@@ -248,8 +248,8 @@ func PlayerSurface(cx *core.Scope, a *App) core.Node {
 					st.playErr.Set(err.Error())
 					autoRetry(err.Error())
 				},
-				TestID:     "video",
-				StyleFunc:  nil,
+				TestID:    "video",
+				StyleFunc: nil,
 				OnPress: func(ev core.PressEvent) {
 					st.showBar(cx)
 					if ev.Clicks >= 2 {
@@ -334,7 +334,7 @@ func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
 			Style: core.Style{
 				Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0),
 				Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10,
-				Padding:    core.Symmetric(8, 14),
+				Padding: core.Symmetric(8, 14),
 				// B 站控制栏：半透明黑覆盖在视频上，白字白图标。
 				Background: core.RGBA(0x000000, 0.55),
 			},
@@ -436,42 +436,81 @@ func playIcon(st *playerState) func() *core.SVG {
 	}
 }
 
-// progressSlider 进度条：拖动 seek，拖动中不跳变。
+// progressSlider 进度条（B 站形态）：拖动 seek，拖动中不跳变；热区
+// 比视觉轨道高（14pt）方便点中，悬停/拖动时指示条变粗、拖块放大。
 func progressSlider(cx *core.Scope, st *playerState) core.Node {
 	dragging := core.NewSignal(cx, false)
 	dragValue := core.NewSignal(cx, 0.0)
+	hover := core.NewSignal(cx, false)
+	const (
+		hitH   core.Points = 14 // 热区高度
+		barH   core.Points = 3  // 常态指示条粗细
+		barHL  core.Points = 5  // 悬停/拖动指示条粗细
+		thumbS core.Points = 12 // 悬停拖块直径
+		thumbL core.Points = 16 // 拖动时拖块直径
+	)
 
-	return base.Slider{
-		Value: func() base.SliderValue {
-			if dragging.Get() {
-				return base.SingleValue(dragValue.Get())
-			}
-			dur := st.duration.Get().Seconds()
-			if dur <= 0 {
-				return base.SingleValue(0)
-			}
-			return base.SingleValue(st.position.Get().Seconds() / dur * 100)
-		},
-		Min:   func() float64 { return 0 },
-		Max:   func() float64 { return 100 },
-		Step:  func() float64 { return 0.01 },
-		Axis:  base.Horizontal,
-		Label: "播放进度",
-		Style: core.Style{FlexGrow: 1, FlexShrink: 1},
-		OnChange: func(v base.SliderValue) {
-			dragging.Set(true)
-			dragValue.Set(v.End)
-		},
-		OnChangeEnd: func(v base.SliderValue) {
-			dragging.Set(false)
-			dur := st.duration.Get()
-			if dur > 0 {
-				st.ref.Seek(time.Duration(v.End / 100 * float64(dur)))
-			}
-		},
-		TrackStyle:     core.Style{Height: core.Pt(4), CornerRadius: 2},
-		IndicatorStyle: core.Style{Background: theme.AccentBili, CornerRadius: 2},
-		ThumbStyle:     core.Style{Background: theme.AccentBili},
+	return core.View{
+		Style:        core.Style{FlexGrow: 1, FlexShrink: 1, Height: core.Pt(hitH)},
+		OnMouseEnter: func(core.MouseEvent) { hover.Set(true) },
+		OnMouseLeave: func(core.MouseEvent) { hover.Set(false) },
+		Children: []core.Node{base.Slider{
+			Value: func() base.SliderValue {
+				if dragging.Get() {
+					return base.SingleValue(dragValue.Get())
+				}
+				dur := st.duration.Get().Seconds()
+				if dur <= 0 {
+					return base.SingleValue(0)
+				}
+				return base.SingleValue(st.position.Get().Seconds() / dur * 100)
+			},
+			Min:   func() float64 { return 0 },
+			Max:   func() float64 { return 100 },
+			Step:  func() float64 { return 0.01 },
+			Axis:  base.Horizontal,
+			Label: "播放进度",
+			Style: core.Style{FlexGrow: 1, Height: core.Pt(hitH)},
+			OnChange: func(v base.SliderValue) {
+				dragging.Set(true)
+				dragValue.Set(v.End)
+			},
+			OnChangeEnd: func(v base.SliderValue) {
+				dragging.Set(false)
+				dur := st.duration.Get()
+				if dur > 0 {
+					st.ref.Seek(time.Duration(v.End / 100 * float64(dur)))
+				}
+			},
+			TrackStyle: core.Style{Height: core.Pt(hitH)},
+			IndicatorStyleFunc: func() core.Style {
+				active := hover.Get() || dragging.Get()
+				h := barH
+				top := (hitH - barH) / 2
+				if active {
+					h = barHL
+					top = (hitH - barHL) / 2
+				}
+				return core.Style{Background: theme.AccentBili, Height: core.Pt(h), CornerRadius: 999,
+					Margin: core.Edges{Top: core.Points(top)}}
+			},
+			// 拖块：B 站蓝圆点白描边，悬停出现、拖动放大（平时缩为 0，
+			// 点轨道任意处仍可起拖）。
+			ThumbStyleFunc: func() core.Style {
+				stl := core.Style{Background: theme.AccentBili, CornerRadius: 999,
+					BorderColor: core.RGB(0xffffff), BorderWidth: 2, BorderStyle: core.BorderSolid}
+				size := core.Points(0)
+				switch {
+				case dragging.Get():
+					size = thumbL
+				case hover.Get():
+					size = thumbS
+				}
+				stl.Width = core.Pt(size)
+				stl.Height = core.Pt(size)
+				return stl
+			},
+		}},
 	}
 }
 
@@ -484,7 +523,7 @@ var rateRates = []float32{2.0, 1.5, 1.25, 1.0, 0.75, 0.5}
 func rateControl(cx *core.Scope, st *playerState) core.Node {
 	return core.Dynamic(func(*core.Scope) core.Node {
 		btn := core.View{
-			Style:    core.Style{Padding: core.Symmetric(2, 8), CornerRadius: 4},
+			Style: core.Style{Padding: core.Symmetric(2, 8), CornerRadius: 4},
 			Children: []core.Node{core.Text{
 				ContentFunc: func() string {
 					r := st.rate.Get()
@@ -500,50 +539,50 @@ func rateControl(cx *core.Scope, st *playerState) core.Node {
 		if !st.rateOpen.Get() {
 			return btn
 		}
-	// 展开态：按钮套 Relative 包裹层作定位锚，倍速面板绝对定位在其
-	// 正上方（Bottom = 按钮高度 + 间距），与按钮左缘对齐。
-	menu := core.View{
-		Style: core.Style{
-			Position: core.Absolute, Left: core.Pt(0), Bottom: core.Pt(28),
-			Width: core.Pt(88), Padding: core.Edges{Top: 6, Bottom: 6},
-			CornerRadius: 8, Background: core.RGBA(0x1e1e22, 0.95),
-			ShadowColor: core.RGBA(0x000000, 0.35), ShadowOffset: core.Point{Y: 2}, ShadowRadius: 10,
-			// 浮在视频与控制栏之上。
-			ZIndex: 10,
-		},
-		Children: func() []core.Node {
-			out := []core.Node{}
-			for _, r := range rateRates {
-				r := r
-				current := st.rate.Get() == r
-				out = append(out, core.View{
-					StyleFunc: func() core.Style {
-						stl := core.Style{
-							Padding: core.Symmetric(7, 12), CornerRadius: 6, FontSize: 12,
-							Color:      core.RGB(0xffffff),
-							AlignItems: core.AlignCenter,
-							Hover:      &core.Style{Background: core.RGBA(0xffffff, 0.12)},
-						}
-						if current {
-							stl.Color = theme.AccentBili
-							stl.Background = core.RGBA(0xffffff, 0.08)
-						}
-						return stl
-					},
-					Children: []core.Node{core.Text{Content: fmtRate(r)}},
-					OnPress: func(core.PressEvent) {
-						st.rate.Set(r)
-						st.rateOpen.Set(false)
-					},
-				})
-			}
-			return out
-		}(),
-	}
-	return core.View{
-		Style:    core.Style{Position: core.Relative, FlexShrink: 0},
-		Children: []core.Node{btn, menu},
-	}
+		// 展开态：按钮套 Relative 包裹层作定位锚，倍速面板绝对定位在其
+		// 正上方（Bottom = 按钮高度 + 间距），与按钮左缘对齐。
+		menu := core.View{
+			Style: core.Style{
+				Position: core.Absolute, Left: core.Pt(0), Bottom: core.Pt(28),
+				Width: core.Pt(88), Padding: core.Edges{Top: 6, Bottom: 6},
+				CornerRadius: 8, Background: core.RGBA(0x1e1e22, 0.95),
+				ShadowColor: core.RGBA(0x000000, 0.35), ShadowOffset: core.Point{Y: 2}, ShadowRadius: 10,
+				// 浮在视频与控制栏之上。
+				ZIndex: 10,
+			},
+			Children: func() []core.Node {
+				out := []core.Node{}
+				for _, r := range rateRates {
+					r := r
+					current := st.rate.Get() == r
+					out = append(out, core.View{
+						StyleFunc: func() core.Style {
+							stl := core.Style{
+								Padding: core.Symmetric(7, 12), CornerRadius: 6, FontSize: 12,
+								Color:      core.RGB(0xffffff),
+								AlignItems: core.AlignCenter,
+								Hover:      &core.Style{Background: core.RGBA(0xffffff, 0.12)},
+							}
+							if current {
+								stl.Color = theme.AccentBili
+								stl.Background = core.RGBA(0xffffff, 0.08)
+							}
+							return stl
+						},
+						Children: []core.Node{core.Text{Content: fmtRate(r)}},
+						OnPress: func(core.PressEvent) {
+							st.rate.Set(r)
+							st.rateOpen.Set(false)
+						},
+					})
+				}
+				return out
+			}(),
+		}
+		return core.View{
+			Style:    core.Style{Position: core.Relative, FlexShrink: 0},
+			Children: []core.Node{btn, menu},
+		}
 	})
 }
 
@@ -697,7 +736,7 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 				})
 			}
 			head = append(head, core.View{
-				Style: core.Style{Direction: core.Row, Gap: 6},
+				Style:    core.Style{Direction: core.Row, Gap: 6},
 				Children: row,
 				OnPress: func(core.PressEvent) {
 					if long {
@@ -728,8 +767,8 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 					st := core.Style{
 						Padding: core.Symmetric(3, 10), CornerRadius: 999, FontSize: 12,
 						BorderColor: p.Border, BorderWidth: 1, BorderStyle: core.BorderSolid,
-						Color:       p.Text,
-						Hover:       &core.Style{Background: p.SurfaceHover},
+						Color: p.Text,
+						Hover: &core.Style{Background: p.SurfaceHover},
 					}
 					if current {
 						st.Background = p.Accent
