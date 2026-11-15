@@ -23,6 +23,7 @@ type playerState struct {
 	volume     *core.Signal[float64]
 	muted      *core.Signal[bool]
 	rate       *core.Signal[float32]
+	rateOpen   *core.Signal[bool] // 倍速弹出选单是否展开
 	buffering  *core.Signal[bool]
 	playErr    *core.Signal[string]
 	attempts   *core.Signal[int] // 同一集的重试次数，用于自动重试
@@ -42,6 +43,7 @@ func newPlayerState(a *App, cx *core.Scope, volume float64, rate float32) *playe
 		volume:     core.NewSignal(cx, volume),
 		muted:      core.NewSignal(cx, false),
 		rate:       core.NewSignal(cx, rate),
+		rateOpen:   core.NewSignal(cx, false),
 		buffering:  core.NewSignal(cx, false),
 		playErr:    core.NewSignal(cx, ""),
 		attempts:   core.NewSignal(cx, 0),
@@ -371,36 +373,9 @@ func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
 					},
 					Style: core.Style{FontSize: 11, Color: core.RGBA(0xffffff, 0.8)},
 				},
-				// 倍速。
-				core.View{
-					Style: core.Style{Padding: core.Symmetric(2, 8), CornerRadius: 4},
-					Children: []core.Node{core.Text{
-						ContentFunc: func() string {
-							r := st.rate.Get()
-							if r == 1 {
-								return "倍速"
-							}
-							return fmtRate(r)
-						},
-						Style: core.Style{FontSize: 12, Color: core.RGB(0xffffff)},
-					}},
-					OnPress: func(core.PressEvent) {
-						st.rate.Update(func(r float32) float32 {
-							switch r {
-							case 1:
-								return 1.25
-							case 1.25:
-								return 1.5
-							case 1.5:
-								return 2
-							case 2:
-								return 0.5
-							default:
-								return 1
-							}
-						})
-					},
-				},
+				// 倍速：点击向上弹出选单（B 站形态），列出可选倍速、
+				// 高亮当前值；点击选单外任意处收起。
+				rateControl(cx, st),
 				// 音量。
 				volumeControl(cx, st),
 				// 全屏。
@@ -501,6 +476,78 @@ func progressSlider(cx *core.Scope, st *playerState) core.Node {
 }
 
 // volumeControl 音量：图标点击静音，拖动调音量。
+// rateRates 倍速选单可选值（B 站同款档位）。
+var rateRates = []float32{2.0, 1.5, 1.25, 1.0, 0.75, 0.5}
+
+// rateControl 倍速按钮 + 向上弹出选单。点击按钮展开/收起；展开时铺一层
+// 透明全屏捕获层，点击选单外任意处收起（点选单内则选中并收起）。
+func rateControl(cx *core.Scope, st *playerState) core.Node {
+	return core.Dynamic(func(*core.Scope) core.Node {
+		btn := core.View{
+			Style:    core.Style{Padding: core.Symmetric(2, 8), CornerRadius: 4},
+			Children: []core.Node{core.Text{
+				ContentFunc: func() string {
+					r := st.rate.Get()
+					if r == 1 {
+						return "倍速"
+					}
+					return fmtRate(r)
+				},
+				Style: core.Style{FontSize: 12, Color: core.RGB(0xffffff)},
+			}},
+			OnPress: func(core.PressEvent) { st.rateOpen.Update(func(b bool) bool { return !b }) },
+		}
+		if !st.rateOpen.Get() {
+			return btn
+		}
+	// 展开态：按钮套 Relative 包裹层作定位锚，倍速面板绝对定位在其
+	// 正上方（Bottom = 按钮高度 + 间距），与按钮左缘对齐。
+	menu := core.View{
+		Style: core.Style{
+			Position: core.Absolute, Left: core.Pt(0), Bottom: core.Pt(28),
+			Width: core.Pt(88), Padding: core.Edges{Top: 6, Bottom: 6},
+			CornerRadius: 8, Background: core.RGBA(0x1e1e22, 0.95),
+			ShadowColor: core.RGBA(0x000000, 0.35), ShadowOffset: core.Point{Y: 2}, ShadowRadius: 10,
+			// 浮在视频与控制栏之上。
+			ZIndex: 10,
+		},
+		Children: func() []core.Node {
+			out := []core.Node{}
+			for _, r := range rateRates {
+				r := r
+				current := st.rate.Get() == r
+				out = append(out, core.View{
+					StyleFunc: func() core.Style {
+						stl := core.Style{
+							Padding: core.Symmetric(7, 12), CornerRadius: 6, FontSize: 12,
+							Color:      core.RGB(0xffffff),
+							AlignItems: core.AlignCenter,
+							Hover:      &core.Style{Background: core.RGBA(0xffffff, 0.12)},
+						}
+						if current {
+							stl.Color = theme.AccentBili
+							stl.Background = core.RGBA(0xffffff, 0.08)
+						}
+						return stl
+					},
+					Children: []core.Node{core.Text{Content: fmtRate(r)}},
+					OnPress: func(core.PressEvent) {
+						st.rate.Set(r)
+						st.rateOpen.Set(false)
+					},
+				})
+			}
+			return out
+		}(),
+	}
+	return core.View{
+		Style:    core.Style{Position: core.Relative, FlexShrink: 0},
+		Children: []core.Node{btn, menu},
+	}
+	})
+}
+
+// volumeControl 音量图标 + 滑杆。
 func volumeControl(cx *core.Scope, st *playerState) core.Node {
 	return core.Dynamic(func(*core.Scope) core.Node {
 		icon := lucide.Volume2

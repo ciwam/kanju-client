@@ -57,9 +57,16 @@ func Shell(cx *core.Scope, a *App) core.Node {
 			return theme.Fill().Merge(core.Style{Overflow: core.Hidden})
 		},
 		Children: []core.Node{
-			// 全局顶栏常显（B 站桌面版样式，播放页也显示——返回保底）。
+			// 全局顶栏常显（B 站桌面版样式，播放页也显示——返回保底）；
+			// 全屏时隐藏（沉浸，样式提交不销毁子树）。
 			core.View{
-				StyleFunc: func() core.Style { return appBarStyle(cx) },
+				StyleFunc: func() core.Style {
+					st := appBarStyle(cx)
+					if desktop.FullScreen(cx) {
+						st.Display = core.DisplayNone
+					}
+					return st
+				},
 				Desktop:   core.DesktopViewProps{WindowDrag: core.WindowDragOn},
 				Children:  []core.Node{appTopBar(cx, a)},
 			},

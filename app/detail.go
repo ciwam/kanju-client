@@ -7,6 +7,7 @@ import (
 	"kanju/client/theme"
 
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/desktop"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -167,6 +168,11 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 
 	return core.View{
 		StyleFunc: func() core.Style {
+			// 全屏时页面 padding 归零（视频铺满，无白边）——desktop.FullScreen
+			// 只在 StyleFunc 读：样式提交不销毁子树，Video 不重建。
+			if desktop.FullScreen(cx) {
+				return theme.Fill().Merge(core.Style{Overflow: core.Hidden})
+			}
 			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 12, Overflow: core.Hidden})
 		},
 		Children: []core.Node{episodeWatchPage(cx, a)},
@@ -183,7 +189,12 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 	// 上双栏：左播放器 + 右选集列表。
 	playerPane := core.View{
 		StyleFunc: func() core.Style {
-			return core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden, CornerRadius: 8, Background: core.RGB(0x000000)}
+			// 全屏时去圆角（视频铺满整窗）。
+			st := core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden, CornerRadius: 8, Background: core.RGB(0x000000)}
+			if desktop.FullScreen(cx) {
+				st.CornerRadius = 0
+			}
+			return st
 		},
 		Children: []core.Node{
 			PlayerSurface(cx, a),
@@ -289,12 +300,22 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 
 	watchRow := core.View{
 		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
+			// 全屏时右栏收起、双栏间隙归零（B 站：全屏只有视频）。
+			st := core.Style{Direction: core.Row, Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
+			if desktop.FullScreen(cx) {
+				st.Gap = 0
+			}
+			return st
 		},
 		Children: []core.Node{
 			playerPane,
 			core.View{
 				StyleFunc: func() core.Style {
+					// 全屏时右栏隐藏（DisplayNone 样式提交，子树与页内
+					// 状态保留，退出全屏恢复）。
+					if desktop.FullScreen(cx) {
+						return core.Style{Display: core.DisplayNone}
+					}
 					p := cx.Palette()
 					return core.Style{
 						Width: core.Pt(320), FlexShrink: 0, Padding: core.All(8), Gap: 4,
