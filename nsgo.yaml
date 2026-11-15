@@ -7,4 +7,8 @@ dev:
 
 build:
   output: dist
-  targets: [macos_arm64]
+  targets: [macos_arm64, android_arm64]
+
+# GitHub Releases：install.sh 与自动更新从这里取（也是发布目标仓库）。
+release:
+  github: ciwam/kanju-client

@@ -14,6 +14,7 @@
 # target（go tool nsgo doctor 可看本机支持情况）:
 #   run          清理 + 构建 + 运行（本机平台）
 #   macos        macos_arm64 的别名
+#   release      = ./release.sh build：清理 + 构建（macos_arm64 + android_arm64）+ 上传 GitHub Releases
 #   all          全部平台
 #   webapp       wasm UI 站点 + kanju-web 宿主（自托管：单二进制 = 后端 + Web 前端）
 #   macos_arm64 / macos_x64 / windows_x64 / windows_arm64
