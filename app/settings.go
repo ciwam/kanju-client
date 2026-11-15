@@ -131,9 +131,13 @@ func settingsSourcesPane(cx *core.Scope, a *App) core.Node {
 	})
 }
 
-// settingsLogsPane 运行日志页签。
+// settingsLogsPane 运行日志页签。FlexBasis 100% 把卡片撑到滚动区
+// 可见高度——日志列表占满剩余空间而不是固定 220pt 高。
 func settingsLogsPane(cx *core.Scope) core.Node {
-	return LogCard(cx)
+	return core.View{
+		Style:    core.Style{FlexGrow: 1, FlexBasis: core.Pct(100)},
+		Children: []core.Node{LogCard(cx)},
+	}
 }
 
 // serverCard 外部服务器地址卡片（内嵌模式不显示）。
@@ -202,18 +206,23 @@ func LogCard(cx *core.Scope) core.View {
 		logButtons = append([]core.Node{ui.Button{Text: "打开日志目录", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: openDir}}, logButtons...)
 	}
 
-	return theme.Card(cx,
-		core.View{
-			StyleFunc: func() core.Style { return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8} },
-			Children: append([]core.Node{
-				core.View{
-					StyleFunc: func() core.Style { return core.Style{FlexGrow: 1, FlexShrink: 1} },
-					Children:  []core.Node{theme.Title("运行日志", 14, ui.Semibold)},
-				},
-			}, logButtons...),
-		},
-		logView(cx, version),
-	)
+	return core.View{
+		// 撑满页签面板（settingsLogsPane 已给 100% basis），日志列表
+		// FlexGrow 吃掉卡片内剩余高度。
+		Style: core.Style{FlexGrow: 1, FlexShrink: 1},
+		Children: []core.Node{theme.Card(cx,
+			core.View{
+				StyleFunc: func() core.Style { return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, FlexShrink: 0} },
+				Children: append([]core.Node{
+					core.View{
+						StyleFunc: func() core.Style { return core.Style{FlexGrow: 1, FlexShrink: 1} },
+						Children:  []core.Node{theme.Title("运行日志", 14, ui.Semibold)},
+					},
+				}, logButtons...),
+			},
+			logView(cx, version),
+		)},
+	}
 }
 
 // logView 等宽字体的日志文本区。Row 里不重复取快照，直接按行读。
@@ -225,6 +234,8 @@ func logView(cx *core.Scope, version *core.Signal[int]) core.Node {
 		},
 		EstimatedSize: 18,
 		Viewport:      core.ListViewportOwn,
+		// 到顶/到底继续拖不再回弹跳动（日志区 rubber band 无意义）。
+		Behavior: core.ScrollBehavior{NoBounces: true},
 		Row: func(cx *core.Scope, row core.ListRow) core.Node {
 			lines := Logs()
 			if row.Index() >= len(lines) {
@@ -239,7 +250,7 @@ func logView(cx *core.Scope, version *core.Signal[int]) core.Node {
 				},
 			}
 		},
-		Style: core.Style{FlexGrow: 1, FlexShrink: 1, Height: core.Pt(220), CornerRadius: 6,
+		Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(220), CornerRadius: 6,
 			Background: cx.Palette().Background, BorderWidth: 1, BorderColor: cx.Palette().Border,
 			BorderStyle: core.BorderSolid, Padding: core.All(8)},
 	}
