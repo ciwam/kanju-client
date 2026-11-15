@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"kanju/client/api"
 	"kanju/client/app"
@@ -384,5 +385,58 @@ func TestLeavePlayerPauses(t *testing.T) {
 	a.Settle()
 	if !state.IsPlayerPausedForTest() {
 		t.Fatal("离开播放页签后视频应暂停")
+	}
+}
+
+// TestHomeSearchAutoSubmits 首页搜索框提交（回车/按钮）后，搜索面板
+// 应自动发起搜索——面板常驻后不能只预填不搜（曾需在面板里再点一次）。
+func TestHomeSearchAutoSubmits(t *testing.T) {
+	var state *app.App
+	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		state = app.SetupForTest(cx, "http://127.0.0.1:1")
+		state.Embedded.Set(true)
+		state.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
+		return app.Root(cx, state)
+	}, nsgotest.Size(1000, 700))
+	a.Settle()
+	// 首页搜索框提交（home-search 按钮，与用户路径一致）。
+	a.Post(func() { state.SearchKeyword.Set("我独自升级") })
+	a.Post(func() { state.OpenSearch("我独自升级") })
+	a.Settle()
+	a.Settle()
+	// 面板应已自动提交：SetupForTest 的 API 无日志钩子，用渲染树的
+	// 错误态判断（无后端 → 搜索失败 → ErrorRetry 重试按钮出现）。
+	for i := 0; i < 20; i++ {
+		a.Settle()
+		if len(a.Query("text:重试")) > 0 {
+			return // 自动搜索已发起并返回失败态 = 提交发生
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("进入搜索面板后未自动发起搜索（无错误态）。渲染树:\n%s", a.Dump())
+}
+
+// TestDisplayNoneChildEffectTemp 临时验证：DisplayNone 子树的 Effect 是否注册并首跑。
+func TestDisplayNoneChildEffectTemp(t *testing.T) {
+	fired := make(chan bool, 1)
+	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Children: []core.Node{
+			core.View{TestID: "visible", Children: []core.Node{core.Text{Content: "V"}}},
+			core.View{TestID: "hidden-wrap", Style: core.Style{Display: core.DisplayNone}, Children: []core.Node{
+				core.View{TestID: "hidden-effect", OnLayout: func(core.Bounds) {},
+					Children: []core.Node{core.Dynamic(func(dc *core.Scope) core.Node {
+						dc.Effect(func() { fired <- true })
+						return core.Text{Content: "H"}
+					})},
+				},
+			}},
+		}}
+	}, nsgotest.Size(400, 300))
+	a.Settle()
+	select {
+	case <-fired:
+		t.Log("effect fired")
+	default:
+		t.Fatal("DisplayNone 子树的 Effect 未首跑")
 	}
 }

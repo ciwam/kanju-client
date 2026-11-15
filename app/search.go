@@ -23,6 +23,7 @@ func searchPanel(cx *core.Scope, a *App) core.Node {
 	// 竞态防护：关键词 key，过期响应丢弃。
 	reqKey := core.NewSignal(cx, "")
 
+
 	submit := func() {
 		kw := trimSpace(keyword.Get())
 		if kw == "" || running.Get() {
@@ -50,6 +51,28 @@ func searchPanel(cx *core.Scope, a *App) core.Node {
 			})
 		}()
 	}
+
+
+	// 页签常驻显隐（shellPages）后本面板挂载一次常驻：首页搜索框
+	// 提交（回车/按钮）设置 SearchKeyword 时，这里预填并自动搜索
+	// ——不再需要到面板里再点一次搜索。
+	cx.Effect(func() {
+		// track 两个信号：SearchKeyword 变化（预填+提交）与
+		// HomeView 变化（面板打开时补提交——OpenSearch 同批先设
+		// 关键词再开面板，首次重跑时面板可能还没显示）。
+		kw := a.SearchKeyword.Get()
+		open := a.Tab.Get() == "home" && a.HomeView.Get() == "search"
+		if kw == "" || !open {
+			return
+		}
+		core.Untracked(cx, func() bool {
+			if kw != keyword.Get() {
+				keyword.Set(kw)
+			}
+			submit()
+			return true
+		})
+	})
 
 	inputRow := core.View{
 		StyleFunc: func() core.Style { return core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, FlexShrink: 1} },
