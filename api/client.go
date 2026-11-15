@@ -666,6 +666,29 @@ func (c *Client) MediaQueryProxy(raw string) string {
 	return c.Base() + "/api/proxy/media?url=" + url.QueryEscape(raw)
 }
 
+// ProbeMediaURL 探测代理后的媒体流是否真的可取：GET 拉少量字节，
+// 2xx 且非空才认为可播。站源播放页解析"成功"但视频 CDN 间歇性 404
+// 时（如量子资源），nsgo 的 Video 对坏流静默黑屏不触发 OnError——
+// 进入播放器前先验流，坏流走换源，杜绝"不报错也不播放"。
+func (c *Client) ProbeMediaURL(playURL string) error {
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Get(playURL)
+	if err != nil {
+		return fmt.Errorf("媒体流不可达: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("媒体流不可用 (HTTP %d)", resp.StatusCode)
+	}
+	// m3u8 内容非空即可（分片可达性交给播放器渐进报错）；
+	// mp4/flv 依靠 Range，首字节能取到即认为流活着。
+	n, err := io.ReadFull(resp.Body, make([]byte, 64))
+	if err != nil && n == 0 {
+		return fmt.Errorf("媒体流为空")
+	}
+	return nil
+}
+
 // PlaybackURL 按 /api/play 返回的 type 把直链改写成代理地址：
 // m3u8 走路径式代理（playlist 内相对分片自动承接），其余走查询式
 // 代理（Range 透传支持 seek）。iframe 类型调用方应已拦截。
