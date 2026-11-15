@@ -36,7 +36,8 @@ func subjectRevision(payload []byte) string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
-// subjectCacheGet 读缓存：命中返回 payload 与新鲜度。
+// subjectCacheGet 读缓存：命中返回 payload 与新鲜度。intro 为空的
+// 条目视为不完整（早期版本抓取失败遗留），不命中——重新抓取补全。
 func (s *Server) subjectCacheGet(id string) (payload []byte, fresh bool, ok bool) {
 	var raw, fetchedAt string
 	err := s.db.QueryRow(
@@ -47,6 +48,10 @@ func (s *Server) subjectCacheGet(id string) (payload []byte, fresh bool, ok bool
 	}
 	t, e := time.Parse(time.RFC3339, fetchedAt)
 	if e != nil {
+		return nil, false, false
+	}
+	var data map[string]any
+	if json.Unmarshal([]byte(raw), &data) != nil || data["intro"] == "" {
 		return nil, false, false
 	}
 	return []byte(raw), time.Since(t) < subjectTTL, true
