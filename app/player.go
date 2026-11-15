@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"time"
 
+	"kanju/client/api"
 	"kanju/client/theme"
 
 	"github.com/nsgo-dev/nsgo/base"
@@ -590,6 +591,8 @@ func (a *App) IsPlayerPausedForTest() bool {
 func episodeSidebar(cx *core.Scope, a *App) core.Node {
 	// 简介展开态（面板局部信号）。
 	introExpanded := core.NewSignal(cx, false)
+	// 当前选中的站源组索引（站源 tab 切换，一次只显示一个站源）。
+	selectedSource := core.NewSignal(cx, 0)
 	return core.Dynamic(func(*core.Scope) core.Node {
 		s := a.DetailSubject.Get()
 		d := a.DetailData.Get()
@@ -658,41 +661,45 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 			})
 		}
 
-		// 中部：站源选集滚动框（B 站「合集」样式）。
-		epList := []core.Node{}
+		// 站源 tab：一次只显示一个站源的集数（B 站合集切换形态）。
+		var groups []api.Channel
 		if d != nil {
-			for _, ch := range mergeChannels(d.Channels) {
-				ch := ch
-				epList = append(epList, core.View{
-					Style: core.Style{Padding: core.Symmetric(6, 4)},
-					Children: []core.Node{theme.Title(
-						ch.SourceName+" · "+ch.Name, 12, ui.Semibold)},
-				})
-				for _, ep := range ch.Episodes {
-					ep := ep
-					current := ep.URL != "" && ep.URL == nowPlaying
-					epList = append(epList, core.View{
-						StyleFunc: func() core.Style {
-							p := cx.Palette()
-							st := core.Style{
-								Direction: core.Row, AlignItems: core.AlignCenter,
-								Padding: core.Symmetric(6, 10), CornerRadius: 6,
-								Background: p.Background, Color: p.Text,
-								Hover: &core.Style{Background: p.SurfaceHover},
-							}
-							if current {
-								st.Background = p.Accent
-								st.Color = p.AccentText
-							}
-							return st
-						},
-						Children: []core.Node{core.Text{Content: ep.Title, Style: core.Style{FontSize: 12}}},
-						OnPress:  func(core.PressEvent) { a.PlayEpisode(cx, ep, ch) },
-					})
-				}
-			}
-		} else {
-			// 聚合中/失败/无资源：状态并入选集框（下区已无重复状态行）。
+			groups = mergeChannels(d.Channels)
+		}
+		if si := selectedSource.Get(); si >= len(groups) {
+			selectedSource.Set(0)
+		}
+
+		sourceTabs := core.View{Style: core.Style{Direction: core.Row, Gap: 6, Wrap: core.Wrap, FlexShrink: 0}}
+		for i, ch := range groups {
+			i, ch := i, ch
+			label := ch.SourceName + " · " + ch.Name
+			current := i == selectedSource.Get()
+			sourceTabs.Children = append(sourceTabs.Children, core.View{
+				StyleFunc: func() core.Style {
+					p := cx.Palette()
+					st := core.Style{
+						Padding: core.Symmetric(3, 10), CornerRadius: 999, FontSize: 12,
+						BorderColor: p.Border, BorderWidth: 1, BorderStyle: core.BorderSolid,
+						Color:       p.Text,
+						Hover:       &core.Style{Background: p.SurfaceHover},
+					}
+					if current {
+						st.Background = p.Accent
+						st.Color = p.AccentText
+						st.BorderColor = p.Accent
+					}
+					return st
+				},
+				Children: []core.Node{core.Text{Content: label}},
+				OnPress:  func(core.PressEvent) { selectedSource.Set(i) },
+			})
+		}
+
+		// 当前站源的集数列表。
+		epList := []core.Node{}
+		switch {
+		case len(groups) == 0:
 			var st []core.Node
 			switch {
 			case a.DetailLoading.Get():
@@ -709,16 +716,45 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 				}
 			}
 			epList = append(epList, core.View{
-				Style:   core.Style{AlignItems: core.AlignCenter, Padding: core.All(16), Gap: 10},
+				Style:    core.Style{AlignItems: core.AlignCenter, Padding: core.All(16), Gap: 10},
 				Children: st,
 			})
+		default:
+			si := selectedSource.Get()
+			if si >= len(groups) {
+				si = 0
+			}
+			ch := groups[si]
+			for _, ep := range ch.Episodes {
+				ep := ep
+				current := ep.URL != "" && ep.URL == nowPlaying
+				epList = append(epList, core.View{
+					StyleFunc: func() core.Style {
+						p := cx.Palette()
+						st := core.Style{
+							Direction: core.Row, AlignItems: core.AlignCenter,
+							Padding: core.Symmetric(6, 10), CornerRadius: 6,
+							Background: p.Background, Color: p.Text,
+							Hover: &core.Style{Background: p.SurfaceHover},
+						}
+						if current {
+							st.Background = p.Accent
+							st.Color = p.AccentText
+						}
+						return st
+					},
+					Children: []core.Node{core.Text{Content: ep.Title, Style: core.Style{FontSize: 12}}},
+					OnPress:  func(core.PressEvent) { a.PlayEpisode(cx, ep, ch) },
+				})
+			}
 		}
 
-		// 组装：顶部信息（固定）+ 中部选集滚动框（占满剩余）。
+		// 组装：顶部信息（固定）+ 站源 tab（固定）+ 选集滚动框（占满剩余）。
 		return core.View{
 			Style: core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden, Gap: 10},
 			Children: []core.Node{
 				core.View{Style: core.Style{Gap: 6, FlexShrink: 0}, Children: head},
+				sourceTabs,
 				core.Scroll{
 					Style: core.Style{FlexGrow: 1, FlexShrink: 1, CornerRadius: 8,
 						Background: cx.Palette().Background, Padding: core.All(6)},

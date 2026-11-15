@@ -226,7 +226,7 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 	// 下区：标题信息 + 状态 + 线路卡片（Dynamic：随聚合数据更新）。
 	// 状态与站源选集全部在右栏（episodeSidebar），下方无重复内容。
 	return core.View{
-		Style:     core.Style{Overflow: core.Hidden},
+		Style:     theme.Fill().Merge(core.Style{Overflow: core.Hidden}),
 		Children:  []core.Node{watchRow},
 	}
 }
