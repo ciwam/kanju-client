@@ -53,6 +53,15 @@ fi
 # 的唯一方式。用户侧 /releases/latest 下载页不变。
 TAG="latest"
 
+# 发版时间戳（yyyyMMddHHmmss）必须先写进 nsgo.yaml 再构建：构建时
+# 注入 core.App().Build（检查更新的本地比对值），Release 名称也用它。
+# build_pkgs 与 upload_pkgs 共用同一 STAMP。
+STAMP=$(date +%Y%m%d%H%M%S)
+if [ "$MODE" = "build" ]; then
+    sed -i '' -E "s/^(build_number: *)[0-9]+/\\1$STAMP/" nsgo.yaml
+    echo "==> build_number -> $STAMP（已写回 nsgo.yaml，随代码一起提交）"
+fi
+
 build_pkgs() {
     echo "==> 清理构建缓存（go 编译/测试缓存 + dist 旧产物）"
     go clean -cache -testcache
@@ -126,13 +135,6 @@ upload_pkgs() {
         curl -s -X DELETE -H "$AUTH" "https://api.github.com/repos/$REPO/git/refs/tags/$TAG" -o /dev/null
     fi
     echo "==> 创建 Release $TAG（指向最新 commit）"
-    # 发版时间戳（yyyyMMddHHmmss）写入 nsgo.yaml 的 build_number：固定
-    # tag 下版本号不变，检查更新比对本地 core.App().Build（构建时注入
-    # 的同一时间戳）与线上名称里的时间戳判断新旧。时间戳随发版单调
-    # 递增，nsgo.yaml 无需发版外的人工修改。
-    STAMP=$(date +%Y%m%d%H%M%S)
-    sed -i '' -E "s/^(build_number: *)[0-9]+/\\1$STAMP/" nsgo.yaml
-    echo "    build_number -> $STAMP（已写回 nsgo.yaml，随代码一起提交）"
     BODY=$(jq -n --arg tag "$TAG" --arg name "Kanju $VERSION ($STAMP)" --arg sha "$(git rev-parse HEAD)" \
         '{tag_name: $tag, name: $name, body: "Kanju 客户端构建", target_commitish: $sha}' 2>/dev/null \
         || printf '{"tag_name":"%s","name":"Kanju %s (%s)","body":"Kanju 客户端构建","target_commitish":"%s"}' "$TAG" "$VERSION" "$STAMP" "$(git rev-parse HEAD)")
