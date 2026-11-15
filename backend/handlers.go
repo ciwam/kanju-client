@@ -323,88 +323,143 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 并发聚合：每站源一个 goroutine（信号量限并发），成功后探测第一集
+	// 可播性——不可播的站源直接剔除（用户点开就能播，不再"点了才发现
+	// 失效"）。cover/intro 取首个成功源。
+	type srcResult struct {
+		channels []map[string]any
+		cover    string
+		intro    string
+		ok       bool
+	}
+	chRes := make(chan srcResult, len(sources))
+	sem := make(chan struct{}, searchConcurrency)
+	var wg sync.WaitGroup
+	for _, source := range sources {
+		source := source
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			res, e := s.getDetail(ctx, source, detailURL)
+			if e != nil {
+				logWarnC(ctx, "detail source=%q FAILED err=%v", source.Name, e)
+				chRes <- srcResult{}
+				return
+			}
+			if isSuccessWithData(res) {
+				eps := channelsOf(res)
+				// 可播性探测：第一集解析成功才收（getPlayUrl 内含
+				// 解析+直链可达校验）。
+				playable := false
+				if len(eps) > 0 {
+					for _, cm := range eps {
+						for _, ep := range episodesOf(cm) {
+							if u := getMapStr(ep, "url"); u != "" {
+								if _, pe := s.getPlayUrl(ctx, u); pe == nil {
+									playable = true
+								}
+								break
+							}
+						}
+						if playable {
+							break
+						}
+					}
+				}
+				if !playable {
+					logInfoC(ctx, "detail source=%q 不可播（第一集解析失败），剔除", source.Name)
+					chRes <- srcResult{}
+					return
+				}
+				out := []map[string]any{}
+				for _, cm := range eps {
+					cm["_sourceName"] = source.Name
+					out = append(out, cm)
+				}
+				chRes <- srcResult{channels: out, cover: getMapStr(res, "cover"), intro: getMapStr(res, "intro"), ok: true}
+				return
+			}
+			// json_api 站源的标题 fallback（原逻辑保持）。
+			if title != "" && source.SourceType == "json_api" {
+				// Fallback: this source had no direct detail match, try searching by
+				// title and fetching the best matching result's detail.
+				//
+				// 两个坑都要防：
+				//   1. 盲取搜索第一条——站源模糊搜索常返回同名前作/无关影片
+				//      （第一季只有几集、无关剧上千集），必须 titlesMatch 把关；
+				//   2. 关键词太长——豆瓣/TMDB 的完整标题（带副标题、外文名）
+				//      在站源搜不到任何匹配，需要渐进简化：完整标题 →
+				//      去掉「-…-」副标题段 → 主标题，每级仍过 titlesMatch。
+				// 标题 fallback：直接解析成功的第一条匹配结果补进本源结果。
+				for _, kw := range fallbackKeywords(title) {
+					sres, se := s.search(ctx, source, kw)
+					if se != nil {
+						break // 站源搜索本身失败，不再换关键词重试
+					}
+					found := false
+					for _, item := range dataArray(sres) {
+						if !titlesMatch(getMapStr(item, "title"), title) {
+							continue
+						}
+						dres, de := s.getDetail(ctx, source, getMapStr(item, "url"))
+						if de == nil && dres != nil && isSuccessWithData(dres) {
+							eps := channelsOf(dres)
+							playable := false
+							for _, cm := range eps {
+								for _, ep := range episodesOf(cm) {
+									if u := getMapStr(ep, "url"); u != "" {
+										if _, pe := s.getPlayUrl(ctx, u); pe == nil {
+											playable = true
+										}
+										break
+									}
+								}
+								if playable {
+									break
+								}
+							}
+							if playable {
+								out := []map[string]any{}
+								for _, cm := range eps {
+									cm["_sourceName"] = source.Name
+									out = append(out, cm)
+								}
+								chRes <- srcResult{channels: out, cover: getMapStr(dres, "cover"), intro: getMapStr(dres, "intro"), ok: true}
+								return // 本源已出结果，不再 send
+							}
+							logInfoC(ctx, "detail source=%q fallback 不可播，剔除", source.Name)
+						}
+						found = true
+						break // 取第一个标题匹配的条目即可
+					}
+					if found {
+						break // 本级关键词已命中，不再简化
+					}
+				}
+				chRes <- srcResult{}
+			}
+		}()
+	}
+	wg.Wait()
+	close(chRes)
 	allChannels := []map[string]any{}
 	cover := ""
 	intro := ""
 	anySuccess := false
-	for _, source := range sources {
-		st := time.Now()
-		res, e := s.getDetail(ctx, source, detailURL)
-		dur := time.Since(st)
-		if e != nil {
-			logWarnC(ctx, "detail source=%q FAILED dur=%s err=%v", source.Name, dur, e)
+	for r := range chRes {
+		if !r.ok {
 			continue
 		}
-		cnt := 0
-		if isSuccessWithData(res) {
-			// channels 可能是 []map[string]any（内存直接返回）或 []any（JSON
-			// 往返后）；用 channelsOf 统一兼容，避免类型断言漏掉全部选集
-			for _, cm := range channelsOf(res) {
-				cm["_sourceName"] = source.Name
-				allChannels = append(allChannels, cm)
-				cnt++
-			}
-			anySuccess = true
-			if cover == "" {
-				if cv, ok := res["cover"].(string); ok {
-					cover = cv
-				}
-			}
-			if intro == "" {
-				if it, ok := res["intro"].(string); ok {
-					intro = it
-				}
-			}
-		} else if title != "" && source.SourceType == "json_api" {
-			// Fallback: this source had no direct detail match, try searching by
-			// title and fetching the best matching result's detail.
-			//
-			// 两个坑都要防：
-			//   1. 盲取搜索第一条——站源模糊搜索常返回同名前作/无关影片
-			//      （第一季只有几集、无关剧上千集），必须 titlesMatch 把关；
-			//   2. 关键词太长——豆瓣/TMDB 的完整标题（带副标题、外文名）
-			//      在站源搜不到任何匹配，需要渐进简化：完整标题 →
-			//      去掉「-…-」副标题段 → 主标题，每级仍过 titlesMatch。
-			sst := time.Now()
-			for _, kw := range fallbackKeywords(title) {
-				sres, se := s.search(ctx, source, kw)
-				if se != nil {
-					break // 站源搜索本身失败，不再换关键词重试
-				}
-				found := false
-				for _, item := range dataArray(sres) {
-					if !titlesMatch(getMapStr(item, "title"), title) {
-						continue
-					}
-					dres, de := s.getDetail(ctx, source, getMapStr(item, "url"))
-					if de == nil && dres != nil {
-						for _, cm := range channelsOf(dres) {
-							cm["_sourceName"] = source.Name
-							allChannels = append(allChannels, cm)
-							cnt++
-						}
-						anySuccess = true
-						if cover == "" {
-							if cv, ok := dres["cover"].(string); ok {
-								cover = cv
-							}
-						}
-						if intro == "" {
-							if it, ok := dres["intro"].(string); ok {
-								intro = it
-							}
-						}
-					}
-					found = true
-					break // 取第一个标题匹配的条目即可
-				}
-				if found {
-					break // 本级关键词已命中，不再简化
-				}
-			}
-			logInfoC(ctx, "detail source=%q fallback(title→detail) dur=%s channels=%d", source.Name, time.Since(sst), cnt)
+		allChannels = append(allChannels, r.channels...)
+		if cover == "" {
+			cover = r.cover
 		}
-		logInfoC(ctx, "detail source=%q done dur=%s channels=%d", source.Name, dur, cnt)
+		if intro == "" {
+			intro = r.intro
+		}
+		anySuccess = true
 	}
 	merged := map[string]any{"isSuccess": anySuccess, "channels": allChannels}
 	if cover != "" {

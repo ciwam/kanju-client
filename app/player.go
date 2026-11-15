@@ -34,9 +34,9 @@ type playerState struct {
 	ref          *core.Ref
 }
 
-func newPlayerState(cx *core.Scope, volume float64, rate float32) *playerState {
+func newPlayerState(a *App, cx *core.Scope, volume float64, rate float32) *playerState {
 	st := &playerState{
-		paused:     core.NewSignal(cx, false),
+		paused:     a.PlayerPaused,
 		position:   core.NewSignal(cx, time.Duration(0)),
 		duration:   core.NewSignal(cx, time.Duration(0)),
 		volume:     core.NewSignal(cx, volume),
@@ -49,7 +49,6 @@ func newPlayerState(cx *core.Scope, volume float64, rate float32) *playerState {
 		hideGen:    core.NewSignal(cx, 0),
 		ref:        &core.Ref{},
 	}
-	lastPlayerState = st
 	return st
 }
 
@@ -71,7 +70,7 @@ func PlayerSurface(cx *core.Scope, a *App) core.Node {
 			rate = float32(f)
 		}
 	}
-	st := newPlayerState(cx, vol, rate)
+	st := newPlayerState(a, cx, vol, rate)
 	// 离开详情页签即暂停：详情与播放已合并单页（B 站形态），页签
 	// 常驻显隐后本页只是 DisplayNone，Video/AVPlayer 仍活着会继续
 	// 出声——切走时置 paused，回来按播放键继续（进度与状态保留）。
@@ -573,16 +572,12 @@ func pad2(n int64) string {
 
 // SetPlayerPausedForTest / IsPlayerPausedForTest 供外部测试驱动与
 // 检查播放暂停状态（playerState 为页内私有）。
-var lastPlayerState *playerState
-
 func (a *App) SetPlayerPausedForTest(v bool) {
-	if lastPlayerState != nil {
-		lastPlayerState.paused.Set(v)
-	}
+	a.PlayerPaused.Set(v)
 }
 
 func (a *App) IsPlayerPausedForTest() bool {
-	return lastPlayerState == nil || lastPlayerState.paused.Get()
+	return a.PlayerPaused.Get()
 }
 
 // episodeSidebar 播放器右侧选集列表（B 站「合集」面板）：当前影片的
