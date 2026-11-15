@@ -2,6 +2,9 @@
 package theme
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -133,5 +136,38 @@ func retryButton(cx *core.Scope, retry func()) core.View {
 			core.Text{Content: "重试"},
 		},
 		OnPress: func(core.PressEvent) { retry() },
+	}
+}
+
+// RetryImage 可重试图片：框架对取消/失败的加载不自动重试（首页启动
+// 时列数自适应导致 List 连续重建，第一批请求被取消后图片一直空白，
+// 切分类再切回才恢复——重建触发重新加载）。OnError 时以递增 nonce
+// 换源重发，最多 attempts 次。
+func RetryImage(cx *core.Scope, uri, label string, attempts int, style core.Style, onError func(error)) core.Image {
+	gen := core.NewSignal(cx, 0)
+	src := func() core.ImageSource {
+		g := gen.Get() // track：重试时换 nonce 触发重载
+		if g == 0 {
+			return core.Src(uri)
+		}
+		sep := "?"
+		if strings.Contains(uri, "?") {
+			sep = "&"
+		}
+		return core.Src(uri + sep + "retry=" + strconv.Itoa(g))
+	}
+	return core.Image{
+		SourceFunc: src,
+		ResizeMode: core.Cover,
+		Label:      label,
+		OnError: func(err error) {
+			if onError != nil {
+				onError(err)
+			}
+			if gen.Get() < attempts {
+				gen.Update(func(n int) int { return n + 1 })
+			}
+		},
+		Style: style,
 	}
 }

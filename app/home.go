@@ -598,13 +598,12 @@ func posterCell(cx *core.Scope, a *App, it api.DoubanItem) core.Node {
 			core.View{
 				Style: posterCardStyle,
 				Children: []core.Node{
-					core.Image{
-						Source:       core.Src(a.API.ImageURL(it.Cover, title)),
-						ResizeMode:   core.Cover,
-						Label:        title,
-						FadeDuration: time.Millisecond,
-						Style:        core.Style{Width: core.Pct(100), Height: core.Pct(100)},
-					},
+					theme.RetryImage(cx, a.API.ImageURL(it.Cover, title), title, 2,
+						core.Style{Width: core.Pct(100), Height: core.Pct(100)},
+						func(err error) {
+							ClientLog("[home] poster error %q: %v", title, err)
+						},
+					),
 					ratingBadge(cx, it.Rate),
 				},
 				OnPress: func(core.PressEvent) {
