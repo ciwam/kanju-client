@@ -148,9 +148,15 @@ func versionCard(cx *core.Scope) core.Node {
 					result.Set("检查失败：" + err.Error())
 					return
 				}
-				ClientLog("[update] 本地 %s 最新 %s (%s)", app.Version, tag, latest)
-				if tag != "v"+app.Version && !strings.HasPrefix(tag, "v"+app.Version+"-") {
-					result.Set("发现新版本 " + tag + "，点击下方链接下载")
+				ClientLog("[update] 本地 %s 最新 %s (tag=%s)", app.Version, latest, tag)
+				// 发版固定 tag "latest"，版本号从 Release 名称取
+				// （"Kanju <version>"）；名称缺失时退回 tag 前缀比对
+				// （兼容时间戳 tag 的历史包）。
+				remote := strings.TrimPrefix(latest, "Kanju ")
+				upToDate := remote == app.Version ||
+					tag == "v"+app.Version || strings.HasPrefix(tag, "v"+app.Version+"-")
+				if !upToDate {
+					result.Set("发现新版本 " + remote + "，点击下方链接下载")
 					downloadURL.Set("https://github.com/" + releaseRepo + "/releases/latest")
 				} else {
 					result.Set("已是最新版本")
