@@ -53,13 +53,15 @@ fi
 # 的唯一方式。用户侧 /releases/latest 下载页不变。
 TAG="latest"
 
-# 发版时间戳（yyyyMMddHHmmss）必须先写进 nsgo.yaml 再构建：构建时
-# 注入 core.App().Build（检查更新的本地比对值），Release 名称也用它。
-# build_pkgs 与 upload_pkgs 共用同一 STAMP。
-STAMP=$(date +%Y%m%d%H%M%S)
+# 发版标识：build_number 用「epoch 分钟数」（10 位，到 8058 年才溢出
+# uint32——Android versionCode = build_number 有硬上限，14 位日期时间
+# 戳实测打包报错）。先写进 nsgo.yaml 再构建（注入 core.App().Build，
+# 检查更新的本地比对值），Release 名称带人读时间戳。
+STAMP_MIN=$(($(date +%s) / 60))   # epoch 分钟，单调递增
+STAMP_HUMAN=$(date +%Y%m%d%H%M)   # 人读时间戳，进 Release 名称
 if [ "$MODE" = "build" ]; then
-    sed -i '' -E "s/^(build_number: *)[0-9]+/\\1$STAMP/" nsgo.yaml
-    echo "==> build_number -> $STAMP（已写回 nsgo.yaml，随代码一起提交）"
+    sed -i '' -E "s/^(build_number: *)[0-9]+/\\1$STAMP_MIN/" nsgo.yaml
+    echo "==> build_number -> $STAMP_MIN（epoch 分钟，已写回 nsgo.yaml）"
 fi
 
 build_pkgs() {
@@ -135,9 +137,9 @@ upload_pkgs() {
         curl -s -X DELETE -H "$AUTH" "https://api.github.com/repos/$REPO/git/refs/tags/$TAG" -o /dev/null
     fi
     echo "==> 创建 Release $TAG（指向最新 commit）"
-    BODY=$(jq -n --arg tag "$TAG" --arg name "Kanju $VERSION ($STAMP)" --arg sha "$(git rev-parse HEAD)" \
+    BODY=$(jq -n --arg tag "$TAG" --arg name "Kanju $VERSION ($STAMP_HUMAN)" --arg sha "$(git rev-parse HEAD)" \
         '{tag_name: $tag, name: $name, body: "Kanju 客户端构建", target_commitish: $sha}' 2>/dev/null \
-        || printf '{"tag_name":"%s","name":"Kanju %s (%s)","body":"Kanju 客户端构建","target_commitish":"%s"}' "$TAG" "$VERSION" "$STAMP" "$(git rev-parse HEAD)")
+        || printf '{"tag_name":"%s","name":"Kanju %s (%s)","body":"Kanju 客户端构建","target_commitish":"%s"}' "$TAG" "$VERSION" "$STAMP_HUMAN" "$(git rev-parse HEAD)")
     RELEASE_ID=$(api -X POST -d "$BODY" "https://api.github.com/repos/$REPO/releases" | sed -n 's/.*"id": \([0-9]*\),.*/\1/p' | head -1)
     [ -n "$RELEASE_ID" ] || { echo "✗ 创建 Release 失败"; exit 1; }
 
