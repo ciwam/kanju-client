@@ -13,6 +13,9 @@ import (
 func Shell(cx *core.Scope, a *App) core.Node {
 	// B 站桌面版主题（主色蓝、浅灰页面底、卡片白）——整个外壳子树继承。
 	cx.SetTheme(theme.BiliTheme())
+	// 隐藏系统标题栏（B 站桌面版形态）：红绿灯保留在自绘顶栏内，
+	// 顶栏即窗口拖动区。0 高度 = 平台默认值。
+	desktop.SetTitleBar(cx, desktop.TitleBarHidden, 0)
 	// macOS 菜单栏：首项是 app 菜单；「设置…」⌘, 唤出设置页。
 	cx.Effect(func() {
 		core.Untracked(cx, func() bool {
@@ -57,6 +60,7 @@ func Shell(cx *core.Scope, a *App) core.Node {
 			// 全局顶栏常显（B 站桌面版样式，播放页也显示——返回保底）。
 			core.View{
 				StyleFunc: func() core.Style { return appBarStyle(cx) },
+				Desktop:   core.DesktopViewProps{WindowDrag: core.WindowDragOn},
 				Children:  []core.Node{appTopBar(cx, a)},
 			},
 			shellPages(cx, a),
@@ -109,9 +113,15 @@ func appTopBar(cx *core.Scope, a *App) core.Node {
 		return ui.Button{Variant: ui.ButtonGhost, Icon: icon, Label: label, TestID: testID, OnPress: press}
 	}
 
+	// 红绿灯避让：隐藏标题栏后 TitleBar().Left 是系统控件占宽，
+	// 返回按钮前插一个占宽垫片。
+	tb := desktop.TitleBar(cx)
+	lightPad := core.View{Style: core.Style{Width: core.Pt(max(core.Points(tb.Left)-8, 0))}}
+
 	return theme.AppBar(cx,
-		// left：返回 + 标题
+		// left：红绿灯垫片 + 返回 + 标题
 		[]core.Node{
+			lightPad,
 			backVisible,
 			// 保底导航：任何页面点 Kanju 标题回首页（影片推荐）。
 			core.View{
@@ -125,8 +135,9 @@ func appTopBar(cx *core.Scope, a *App) core.Node {
 		// center：全局搜索框
 		[]core.Node{
 			core.View{
-				Style: core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, AlignItems: core.AlignCenter, MaxWidth: core.Pt(560)},
-				Children:  []core.Node{searchInput, searchBtn},
+				Style:    core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, AlignItems: core.AlignCenter, MaxWidth: core.Pt(560)},
+				Desktop:  core.DesktopViewProps{WindowDrag: core.WindowDragOff},
+				Children: []core.Node{searchInput, searchBtn},
 			},
 		},
 		// right：历史 / 收藏 / 设置
