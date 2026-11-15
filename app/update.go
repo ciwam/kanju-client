@@ -319,9 +319,14 @@ func updateDialog(cx *core.Scope, u *updateState) core.Node {
 		StyleFunc: func() core.Style {
 			p := cx.Palette()
 			return core.Style{
-				Position: core.Absolute, Left: core.Pct(25), Right: core.Pct(25),
-				Top: core.Pct(22), Padding: core.Symmetric(14, 16), CornerRadius: 12,
-				Background: p.Surface, Gap: 8,
+				// 居中小卡片：固定宽 260pt（水平居中靠 Left 50% +
+				// TranslateX -50%），Top 40% 高度附近，高度由内容决定
+				// （不设 Bottom/Height，杜绝拉伸占满）。
+				Position: core.Absolute, Left: core.Pct(50), Top: core.Pct(40),
+				Transform:      core.Transform{TranslateXPercent: -50},
+				Width:          core.Pt(260),
+				Padding:        core.Symmetric(12, 16), CornerRadius: 12,
+				Background: p.Surface, Gap: 6,
 				AlignItems: core.AlignCenter,
 			}
 		},
