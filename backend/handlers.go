@@ -573,7 +573,7 @@ func (s *Server) handleSaveHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.saveHistory(uid,
 		getStr(m, "title"), getStr(m, "cover"), getStr(m, "sourceName"),
-		getStr(m, "sourceUrl"), getStr(m, "episodeTitle"), getStr(m, "playUrl"),
+		getStr(m, "sourceUrl"), getStr(m, "detailUrl"), getStr(m, "episodeTitle"), getStr(m, "playUrl"),
 		getInt(m, "position"), getInt(m, "duration")); err != nil {
 		writeJSON(w, 200, fail("保存历史记录失败"))
 		return

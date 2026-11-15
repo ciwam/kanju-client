@@ -22,11 +22,11 @@ func TestSaveHistoryDedup(t *testing.T) {
 	s := newTestServer(t)
 	uid := int64(1)
 	if err := s.saveHistory(&uid, "测试影片", "", "量子资源",
-		"https://example.com/subject/1/", "第1集", "https://example.com/play/1.m3u8", 10, 100); err != nil {
+		"https://example.com/subject/1/", "", "第1集", "https://example.com/play/1.m3u8", 10, 100); err != nil {
 		t.Fatalf("save 1: %v", err)
 	}
 	if err := s.saveHistory(&uid, "测试影片", "", "量子资源",
-		"https://example.com/subject/1/", "第1集", "https://example.com/play/1.m3u8", 42, 100); err != nil {
+		"https://example.com/subject/1/", "", "第1集", "https://example.com/play/1.m3u8", 42, 100); err != nil {
 		t.Fatalf("save 2: %v", err)
 	}
 	hist, err := s.getHistory(&uid)
@@ -45,7 +45,7 @@ func TestSaveHistoryDedup(t *testing.T) {
 func TestSaveHistoryRejectsBlankRecord(t *testing.T) {
 	s := newTestServer(t)
 	uid := int64(1)
-	if err := s.saveHistory(&uid, "", "", "", "", "", "https://example.com/play/1.m3u8", 0, 0); err != nil {
+	if err := s.saveHistory(&uid, "", "", "", "", "", "", "https://example.com/play/1.m3u8", 0, 0); err != nil {
 		t.Fatalf("blank record should be dropped silently, got err %v", err)
 	}
 	hist, err := s.getHistory(&uid)
@@ -62,7 +62,7 @@ func TestCleanupOldHistory(t *testing.T) {
 	s := newTestServer(t)
 	uid := int64(1)
 	if err := s.saveHistory(&uid, "新片", "", "源",
-		"https://example.com/subject/new/", "第1集", "https://example.com/play/new.m3u8", 0, 0); err != nil {
+		"https://example.com/subject/new/", "", "第1集", "https://example.com/play/new.m3u8", 0, 0); err != nil {
 		t.Fatalf("save new: %v", err)
 	}
 	// 直接插入一条"一年前"的旧记录

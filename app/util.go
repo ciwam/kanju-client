@@ -47,10 +47,10 @@ func joinNonEmpty(items []string, sep string) string {
 }
 
 // historyEntry 组装历史条目。title 形如「片名 · 第x集」。
-func historyEntry(title, cover, playURL, sourceName, sourceURL string) api.History {
+func historyEntry(title, cover, detailURL, playURL, sourceName, sourceURL string) api.History {
 	t, ep := splitEpisodeTitle(title)
 	return api.History{
-		Title: t, EpisodeTitle: ep, Cover: cover, PlayURL: playURL,
+		Title: t, EpisodeTitle: ep, Cover: cover, DetailURL: detailURL, PlayURL: playURL,
 		SourceName: sourceName, SourceURL: sourceURL,
 	}
 }

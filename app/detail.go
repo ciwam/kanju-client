@@ -152,6 +152,12 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 		if a.Tab.Get() != "detail" || u == "" {
 			return
 		}
+		// 同 URL 且数据已在（播放后返回详情等场景）不重新拉取——
+		// 重新 LoadDetail 会清空 DetailSubject/Data，页面闪动且重复
+		// 请求站源。
+		if d := a.DetailData.Get(); d != nil && a.DetailURL.Get() == u {
+			return
+		}
 		core.Untracked(cx, func() bool {
 			a.LoadDetail(cx, u, a.DetailTitle.Get(), a.DetailCover.Get())
 			a.refreshFavState(cx, u)

@@ -79,6 +79,7 @@ type History struct {
 	Cover        string `json:"cover"`
 	SourceName   string `json:"sourceName"`
 	SourceURL    string `json:"sourceUrl"`
+	DetailURL    string `json:"detailUrl"`
 	EpisodeTitle string `json:"episodeTitle"`
 	PlayURL      string `json:"playUrl"`
 	Position     int    `json:"position"`
@@ -202,6 +203,7 @@ func (s *Server) migrate() error {
 			cover TEXT,
 			source_name TEXT,
 			source_url TEXT,
+			detail_url TEXT,
 			episode_title TEXT,
 			play_url TEXT,
 			play_position INTEGER DEFAULT 0,
@@ -296,6 +298,13 @@ func (s *Server) migrate() error {
 	_, _ = s.db.Exec("DELETE FROM site_source WHERE base_url = ?", "https://caiji.dbzy5.com/api.php/provide/vod/from/dbm3u8/at/josn/")
 	_, _ = s.db.Exec("UPDATE site_source SET backup_base_url = 'http://cj.ffzyapi.com' WHERE base_url = 'http://api.ffzyapi.com' AND (backup_base_url IS NULL OR backup_base_url = '')")
 	_, _ = s.db.Exec("UPDATE site_source SET backup_base_url = 'https://dbzy.tv' WHERE base_url = 'https://caiji.dbzy5.com' AND (backup_base_url IS NULL OR backup_base_url = '')")
+
+	// 老库升级：history 表补 detail_url 列（2026-11-15 起历史条目记录
+	// 详情页地址，历史页点击进详情）。
+	if _, err := s.db.Exec("ALTER TABLE history ADD COLUMN detail_url TEXT"); err != nil {
+		// 列已存在等情况静默。
+		_ = err
+	}
 
 	s.seed()
 	return nil

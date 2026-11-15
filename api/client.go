@@ -540,6 +540,7 @@ type History struct {
 	Cover        string `json:"cover"`
 	SourceName   string `json:"sourceName"`
 	SourceURL    string `json:"sourceUrl"`
+	DetailURL    string `json:"detailUrl"`
 	EpisodeTitle string `json:"episodeTitle"`
 	PlayURL      string `json:"playUrl"`
 	Position     int64  `json:"position"`
@@ -556,7 +557,7 @@ func (c *Client) Histories() ([]History, error) {
 func (c *Client) SaveHistory(h History) error {
 	return c.doJSON(http.MethodPost, "/api/history", map[string]any{
 		"title": h.Title, "cover": h.Cover, "sourceName": h.SourceName,
-		"sourceUrl": h.SourceURL, "episodeTitle": h.EpisodeTitle,
+		"sourceUrl": h.SourceURL, "detailUrl": h.DetailURL, "episodeTitle": h.EpisodeTitle,
 		"playUrl": h.PlayURL, "position": h.Position, "duration": h.Duration,
 	}, nil)
 }

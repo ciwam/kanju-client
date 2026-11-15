@@ -130,7 +130,7 @@ func PlayerSurface(cx *core.Scope, a *App) core.Node {
 			}()
 			// 写观看历史：键用原始选集 URL。
 			go func() {
-				_ = client.SaveHistory(historyEntry(title, a.HistoryCover(), episodeURL, source, sourceURL))
+				_ = client.SaveHistory(historyEntry(title, a.HistoryCover(), a.DetailURL.Get(), episodeURL, source, sourceURL))
 			}()
 			return true
 		})
@@ -543,7 +543,7 @@ func (a *App) saveProgress(episodeURL string, position, duration int64) {
 	title := a.PlayTitle.Get()
 	source := a.PlaySource.Get()
 	sourceURL := a.PlaySourceURL.Get()
-	h := historyEntry(title, a.HistoryCover(), episodeURL, source, sourceURL)
+	h := historyEntry(title, a.HistoryCover(), a.DetailURL.Get(), episodeURL, source, sourceURL)
 	h.Position = position
 	h.Duration = duration
 	go func() { _ = a.API.SaveHistory(h) }()

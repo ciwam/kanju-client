@@ -136,7 +136,7 @@ func (s *Server) toggleSiteSource(baseURL string) error {
 
 // ---- history ----
 
-func (s *Server) saveHistory(userID *int64, title, cover, sourceName, sourceURL, episodeTitle, playURL string, pos, dur int) error {
+func (s *Server) saveHistory(userID *int64, title, cover, sourceName, sourceURL, detailURL, episodeTitle, playURL string, pos, dur int) error {
 	// 规整：去除首尾空白，避免空格差异造成"看似不同"的重复键。
 	title = strings.TrimSpace(title)
 	sourceURL = strings.TrimSpace(sourceURL)
@@ -175,9 +175,9 @@ func (s *Server) saveHistory(userID *int64, title, cover, sourceName, sourceURL,
 		dur = 0
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO history (user_id, title, cover, source_name, source_url, episode_title, play_url, play_position, duration, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		userID, title, cover, sourceName, sourceURL, episodeTitle, playURL, pos, dur, time.Now().Format(time.RFC3339)); err != nil {
+		`INSERT INTO history (user_id, title, cover, source_name, source_url, detail_url, episode_title, play_url, play_position, duration, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, title, cover, sourceName, sourceURL, detailURL, episodeTitle, playURL, pos, dur, time.Now().Format(time.RFC3339)); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -188,10 +188,10 @@ func (s *Server) getHistory(userID *int64) ([]*History, error) {
 	var err error
 	if userID != nil {
 		rows, err = s.db.Query(
-			"SELECT id, user_id, title, cover, source_name, source_url, episode_title, play_url, play_position, duration, created_at FROM history WHERE user_id = ? ORDER BY created_at DESC LIMIT 100", *userID)
+			"SELECT id, user_id, title, cover, source_name, source_url, detail_url, episode_title, play_url, play_position, duration, created_at FROM history WHERE user_id = ? ORDER BY created_at DESC LIMIT 100", *userID)
 	} else {
 		rows, err = s.db.Query(
-			"SELECT id, user_id, title, cover, source_name, source_url, episode_title, play_url, play_position, duration, created_at FROM history WHERE user_id IS NULL ORDER BY created_at DESC LIMIT 100")
+			"SELECT id, user_id, title, cover, source_name, source_url, detail_url, episode_title, play_url, play_position, duration, created_at FROM history WHERE user_id IS NULL ORDER BY created_at DESC LIMIT 100")
 	}
 	if err != nil {
 		return nil, err
@@ -202,7 +202,7 @@ func (s *Server) getHistory(userID *int64) ([]*History, error) {
 
 func (s *Server) getAllHistory() ([]*History, error) {
 	rows, err := s.db.Query(
-		"SELECT id, user_id, title, cover, source_name, source_url, episode_title, play_url, play_position, duration, created_at FROM history ORDER BY created_at DESC LIMIT 200")
+		"SELECT id, user_id, title, cover, source_name, source_url, detail_url, episode_title, play_url, play_position, duration, created_at FROM history ORDER BY created_at DESC LIMIT 200")
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +216,7 @@ func scanHistory(rows *sql.Rows) ([]*History, error) {
 		var h History
 		var uid sql.NullInt64
 		if err := rows.Scan(&h.ID, &uid, &h.Title, &h.Cover, &h.SourceName, &h.SourceURL,
-			&h.EpisodeTitle, &h.PlayURL, &h.Position, &h.Duration, &h.CreatedAt); err != nil {
+			&h.DetailURL, &h.EpisodeTitle, &h.PlayURL, &h.Position, &h.Duration, &h.CreatedAt); err != nil {
 			return nil, err
 		}
 		if uid.Valid {

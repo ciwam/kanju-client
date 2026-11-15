@@ -48,6 +48,11 @@ func historyPanel(cx *core.Scope, a *App) core.Node {
 			return historyRow(cx, a, h.Title+" · "+h.EpisodeTitle, h.Cover, h.SourceName,
 				relTime(h.CreatedAt), progressFraction(h.Position, h.Duration), fmtPos(h.Position),
 				func() {
+					if h.DetailURL != "" {
+						// 进详情页（B 站历史点击行为），可看简介选集再播。
+						a.OpenDetail(h.Title, h.Cover, h.DetailURL)
+						return
+					}
 					a.OpenPlayer(h.Title+" · "+h.EpisodeTitle, h.PlayURL, h.PlayURL, h.SourceName, h.SourceURL)
 				})
 		},
