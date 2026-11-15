@@ -263,7 +263,14 @@ func (a *App) runUpdate(cx *core.Scope, u *updateState) {
 		return
 	}
 	remoteTS := releaseBuildOf(r.Name)
-	if app.Build != "" && remoteTS != "" && app.Build >= remoteTS {
+	// 比对只在「两边同为 epoch 分钟值域」时可信：Release 名称括号里
+	// 是 build_number（epoch 分钟）；历史上曾放过人读日期戳（14 位，
+	// 与 10 位 epoch 分钟比较必然误判"已是最新"）。值域外的远端标识
+	// 一律视为新版本（保守方向，宁可误报不漏报）。
+	upToDate := app.Build != "" && remoteTS != "" &&
+		len(app.Build) <= 10 && len(remoteTS) <= 10 &&
+		app.Build >= remoteTS
+	if upToDate {
 		showResult(cx, u, "已是最新版本", false)
 		return
 	}

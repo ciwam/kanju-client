@@ -137,9 +137,9 @@ upload_pkgs() {
         curl -s -X DELETE -H "$AUTH" "https://api.github.com/repos/$REPO/git/refs/tags/$TAG" -o /dev/null
     fi
     echo "==> 创建 Release ${TAG}（指向最新 commit）"
-    BODY=$(jq -n --arg tag "$TAG" --arg name "Kanju $VERSION ($STAMP_HUMAN)" --arg sha "$(git rev-parse HEAD)" \
+    BODY=$(jq -n --arg tag "$TAG" --arg name "Kanju $VERSION ($STAMP_MIN) $STAMP_HUMAN" --arg sha "$(git rev-parse HEAD)" \
         '{tag_name: $tag, name: $name, body: "Kanju 客户端构建", target_commitish: $sha}' 2>/dev/null \
-        || printf '{"tag_name":"%s","name":"Kanju %s (%s)","body":"Kanju 客户端构建","target_commitish":"%s"}' "$TAG" "$VERSION" "$STAMP_HUMAN" "$(git rev-parse HEAD)")
+        || printf '{"tag_name":"%s","name":"Kanju %s (%s) %s","body":"Kanju 客户端构建","target_commitish":"%s"}' "$TAG" "$VERSION" "$STAMP_MIN" "$STAMP_HUMAN" "$(git rev-parse HEAD)")
     RELEASE_ID=$(api -X POST -d "$BODY" "https://api.github.com/repos/$REPO/releases" | sed -n 's/.*"id": \([0-9]*\),.*/\1/p' | head -1)
     [ -n "$RELEASE_ID" ] || { echo "✗ 创建 Release 失败"; exit 1; }
 
