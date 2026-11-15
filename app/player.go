@@ -692,12 +692,25 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 				}
 			}
 		} else {
+			// 聚合中/失败/无资源：状态并入选集框（下区已无重复状态行）。
+			var st []core.Node
+			switch {
+			case a.DetailLoading.Get():
+				st = []core.Node{theme.Row(8, ui.Spinner{}, ui.Text("正在聚合站源…", 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }))}
+			case a.DetailErr.Get() != "":
+				st = []core.Node{ui.Text(a.DetailErr.Get(), 12, ui.Regular, func() core.Color { return cx.Palette().Danger })}
+			case a.DetailPlayBusy.Get() != "":
+				st = []core.Node{theme.Row(8, ui.Spinner{}, ui.Text(a.DetailPlayBusy.Get(), 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }))}
+			default:
+				st = []core.Node{
+					ui.Text("各站源都没有收录这部影片", 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
+					ui.Button{Text: "去搜索", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+						OnPress: func() { a.OpenSearch(a.DetailTitle.Get()) }},
+				}
+			}
 			epList = append(epList, core.View{
-				Style: core.Style{AlignItems: core.AlignCenter, Padding: core.All(16)},
-				Children: []core.Node{core.Text{
-					Content: "站源聚合中，选集稍后显示…",
-					Style:   core.Style{FontSize: 12, Color: cx.Palette().TextMuted},
-				}},
+				Style:   core.Style{AlignItems: core.AlignCenter, Padding: core.All(16), Gap: 10},
+				Children: st,
 			})
 		}
 

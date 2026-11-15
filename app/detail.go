@@ -206,7 +206,7 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 
 	watchRow := core.View{
 		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, Gap: 12, FlexGrow: 1, FlexShrink: 0, Height: core.Pt(460), Overflow: core.Hidden}
+			return core.Style{Direction: core.Row, Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
 		},
 		Children: []core.Node{
 			playerPane,
@@ -224,47 +224,10 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 	}
 
 	// 下区：标题信息 + 状态 + 线路卡片（Dynamic：随聚合数据更新）。
-	infoSection := core.Dynamic(func(*core.Scope) core.Node {
-		// 影片名称/简介等头部信息在右栏（episodeSidebar），下方不重复；
-		// 类型/导演已并入右栏 meta，这里只有状态行与线路卡片。
-		children := []core.Node{}
-		children = append(children, core.Dynamic(func(*core.Scope) core.Node {
-			switch {
-			case a.DetailLoading.Get():
-				return theme.Row(8, ui.Spinner{}, ui.Text("正在聚合站源…", 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }))
-			case a.DetailErr.Get() != "":
-				return ui.Text(a.DetailErr.Get(), 13, ui.Regular, func() core.Color { return cx.Palette().Danger })
-			case a.DetailPlayBusy.Get() != "":
-				return theme.Row(8, ui.Spinner{}, ui.Text(a.DetailPlayBusy.Get(), 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }))
-			default:
-				return core.View{}
-			}
-		}))
-
-		if d := a.DetailData.Get(); d != nil {
-			if len(d.Channels) > 0 {
-				for _, ch := range mergeChannels(d.Channels) {
-					ch := ch
-					children = append(children, channelSection(cx, a, ch, func(ep api.Episode, ch2 api.Channel) { a.PlayEpisode(cx, ep, ch2) }))
-				}
-			} else if !a.DetailLoading.Get() {
-				children = append(children, theme.Card(cx,
-					theme.Title("未找到播放资源", 14, ui.Semibold),
-					ui.Text("各站源都没有收录这部影片，试试直接搜索片名", 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
-					ui.Button{Text: "去搜索", Variant: ui.ButtonSecondary,
-						OnPress: func() { a.OpenSearch(a.DetailTitle.Get()) }},
-				))
-			}
-		}
-		return core.View{Style: core.Style{Gap: 14}, Children: children}
-	})
-
+	// 状态与站源选集全部在右栏（episodeSidebar），下方无重复内容。
 	return core.View{
-		Style:     core.Style{Gap: 12, Overflow: core.Hidden},
-		Children: []core.Node{
-			watchRow,
-			core.Scroll{Style: core.Style{FlexGrow: 1, FlexShrink: 1}, Children: []core.Node{infoSection}},
-		},
+		Style:     core.Style{Overflow: core.Hidden},
+		Children:  []core.Node{watchRow},
 	}
 }
 
