@@ -193,7 +193,14 @@ unlink 在遍历中 readers 列表被同一批 dispose 的其它 computation
 **触发场景**（我们的仓库）：首页挂载后立即按压（TestHomeViewPanels）
 或快速页签切换（TestBackNavigation）——Dynamic 子树替换 dispose
 旧 scope 时，其 owned computations 的 sources 指向正在被同一批次
-dispose 的其它 scope 的信号。
+dispose 的其它 scope 的信号。2026-11-15 补充实锤：panic 时索引与
+长度随状态漂移（`[2] with length 0`、`[26] with length 2`），
+符合「槽位过期后错位」推测。页签改常驻显隐（绕开 #1）后触发频率
+下降但未消失——dispose 仍发生在 HomeView 面板切换、搜索刷新等路径。
+
+**缓解**：build.sh 的测试步骤对失败自动重跑一次（上游修复前的
+务实方案）；实机不受影响（panic 条件是 headless 驱动的立即按压
+时序）。
 
 **建议排查方向**：unlink 用 `s.at` 前先校验
 `readers.list[s.at].c == c`（槽位被挪动后 at 过期），不符则线性

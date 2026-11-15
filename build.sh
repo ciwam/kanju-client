@@ -87,7 +87,12 @@ if $run_tests; then
     go test ./api/ -run TestLive -count=1
 
     echo "==> headless UI 测试"
-    go tool nsgo test -target macos .
+    # nsgo dispose unlink 竞态（docs/nsgo-bugs.md #7）偶发 panic 使
+    # 整批测试退出，重跑即过——上游修复前自动重试一次。
+    if ! go tool nsgo test -target macos .; then
+        echo "==> 测试偶发失败（框架 dispose 竞态 #7？），自动重跑一次"
+        go tool nsgo test -target macos .
+    fi
 fi
 
 if $do_run; then
