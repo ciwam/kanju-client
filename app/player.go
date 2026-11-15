@@ -34,7 +34,7 @@ type playerState struct {
 }
 
 func newPlayerState(cx *core.Scope, volume float64, rate float32) *playerState {
-	return &playerState{
+	st := &playerState{
 		paused:     core.NewSignal(cx, false),
 		position:   core.NewSignal(cx, time.Duration(0)),
 		duration:   core.NewSignal(cx, time.Duration(0)),
@@ -48,6 +48,8 @@ func newPlayerState(cx *core.Scope, volume float64, rate float32) *playerState {
 		hideGen:    core.NewSignal(cx, 0),
 		ref:        &core.Ref{},
 	}
+	lastPlayerState = st
+	return st
 }
 
 // Player 播放页：自绘控制栏（播放/暂停、进度条、音量）、续播、错误重试、全屏。
@@ -67,6 +69,17 @@ func Player(cx *core.Scope, a *App) core.Node {
 		}
 	}
 	st := newPlayerState(cx, vol, rate)
+	// 离开播放页签即暂停：页签常驻显隐（shellPages）后本页只是
+	// DisplayNone，Video/AVPlayer 仍活着会继续出声——切走时置 paused，
+	// 回来按播放键继续（进度与状态保留，不重新拉流）。
+	cx.Effect(func() {
+		if a.Tab.Get() != "player" {
+			core.Untracked(cx, func() bool {
+				st.paused.Set(true)
+				return true
+			})
+		}
+	})
 	// 音量/倍速变化即持久化。
 	cx.Effect(func() {
 		v := st.volume.Get()
@@ -575,4 +588,18 @@ func pad2(n int64) string {
 		return "0" + itoa(n)
 	}
 	return itoa(n)
+}
+
+// SetPlayerPausedForTest / IsPlayerPausedForTest 供外部测试驱动与
+// 检查播放暂停状态（playerState 为页内私有）。
+var lastPlayerState *playerState
+
+func (a *App) SetPlayerPausedForTest(v bool) {
+	if lastPlayerState != nil {
+		lastPlayerState.paused.Set(v)
+	}
+}
+
+func (a *App) IsPlayerPausedForTest() bool {
+	return lastPlayerState == nil || lastPlayerState.paused.Get()
 }

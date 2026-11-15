@@ -360,3 +360,29 @@ func TestBackNoPingPong(t *testing.T) {
 		t.Fatalf("detail 返回应到 home，实际 %q（prevTab 被返回导航覆盖会乒乓回 player）", state.Tab.Get())
 	}
 }
+
+// TestLeavePlayerPauses 页签常驻后的离开暂停：切走播放页签时视频应
+// 置 paused（否则 DisplayNone 下 AVPlayer 继续出声）。
+func TestLeavePlayerPauses(t *testing.T) {
+	var state *app.App
+	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		state = app.SetupForTest(cx, "http://127.0.0.1:1")
+		state.Embedded.Set(true)
+		state.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
+		return app.Root(cx, state)
+	}, nsgotest.Size(1000, 700))
+	a.Settle()
+	a.Post(func() {
+		state.OpenPlayer("测试片 · 第01集", "http://127.0.0.1:1/v.m3u8", "https://ep.example/1", "源", "https://detail.example/1")
+	})
+	a.Settle()
+	// 模拟用户把 paused 解除（播放中）。
+	a.Post(func() { state.SetPlayerPausedForTest(false) })
+	a.Settle()
+	// 切走页签。
+	a.Post(func() { state.Tab.Set("home") })
+	a.Settle()
+	if !state.IsPlayerPausedForTest() {
+		t.Fatal("离开播放页签后视频应暂停")
+	}
+}
