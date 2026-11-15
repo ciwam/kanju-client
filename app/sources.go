@@ -14,8 +14,6 @@ func SourcesCard(cx *core.Scope, a *App) core.Node {
 	items := core.NewSignalFunc(cx, []api.SiteSource(nil), func(a, b []api.SiteSource) bool { return false })
 	loading := core.NewSignal(cx, false)
 	errMsg := core.NewSignal(cx, "")
-	newName := core.NewSignal(cx, "")
-	newBase := core.NewSignal(cx, "")
 
 	refresh := func() {
 		loading.Set(true)
@@ -63,44 +61,11 @@ func SourcesCard(cx *core.Scope, a *App) core.Node {
 			})
 		}()
 	}
-	add := func() {
-		name, base := trimSpace(newName.Get()), trimSpace(newBase.Get())
-		if base == "" {
-			return
-		}
-		if name == "" {
-			name = base
-		}
-		client := a.API
-		go func() {
-			err := client.AddSource(api.SiteSource{Name: name, BaseURL: base})
-			cx.Post(func() {
-				if err != nil {
-					errMsg.Set(err.Error())
-				} else {
-					newName.Set("")
-					newBase.Set("")
-					refresh()
-				}
-			})
-		}()
-	}
-
 	return theme.Card(cx,
 		core.View{
 			StyleFunc: func() core.Style { return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8} },
 			Children: []core.Node{
 				theme.Title("站源管理", 14, ui.Semibold),
-				core.View{
-					StyleFunc: func() core.Style {
-						return core.Style{FlexGrow: 1, FlexShrink: 1, Direction: core.Row, Gap: 8}
-					},
-					Children: []core.Node{
-						ui.Input{Value: newName.Get, OnChange: newName.Set, Placeholder: "名称", Style: core.Style{Width: core.Pt(120)}},
-						ui.Input{Value: newBase.Get, OnChange: newBase.Set, Placeholder: "https://…", Style: core.Style{FlexGrow: 1}},
-						ui.Button{Text: "添加", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, OnPress: add},
-					},
-				},
 			},
 		},
 		core.Dynamic(func(*core.Scope) core.Node {
