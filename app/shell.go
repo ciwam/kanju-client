@@ -238,12 +238,14 @@ func appTopBar(cx *core.Scope, a *App) core.Node {
 		}
 	}
 
-	// 手机：导航收进底部栏，顶栏右侧只剩主题切换；桌面保持三图标。
+	// 手机：导航收进底部栏，顶栏 = logo + 搜索框 + 搜索按钮（最右，
+	// 与 logo 左边距对称）；主题切换按钮已移除。
 	if theme.IsAndroid() {
 		return theme.AppBar(cx,
 			// left：logo
 			[]core.Node{logo},
-			// center：全局搜索框
+			// center：全局搜索框（搜索按钮挪到最右：logo 左边距 =
+			// AppBar padding 的 PagePadding，右侧对称即按钮贴右缘）。
 			[]core.Node{
 				core.View{
 					Style:    core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, AlignItems: core.AlignCenter},
@@ -251,8 +253,8 @@ func appTopBar(cx *core.Scope, a *App) core.Node {
 					Children: []core.Node{searchInput, searchBtn},
 				},
 			},
-			// right：主题切换（亮/暗）。
-			[]core.Node{themeToggleButton(cx, a)},
+			// right：无（搜索按钮在 center 内已贴最右）。
+			nil,
 		)
 	}
 
@@ -280,33 +282,7 @@ func appTopBar(cx *core.Scope, a *App) core.Node {
 	)
 }
 
-// themeToggleButton 亮/暗切换：图标随当前外观（亮显示月亮=切暗，
 // 暗显示太阳=切亮），偏好持久化到 Storage（App.ThemePref）。
-func themeToggleButton(cx *core.Scope, a *App) core.Node {
-	return core.Dynamic(func(*core.Scope) core.Node {
-		dark := cx.Env().Dark()
-		icon := lucide.Moon
-		if dark {
-			icon = lucide.Sun
-		}
-		return ui.Button{Variant: ui.ButtonGhost, Icon: icon, Label: "主题",
-			TestID: "appbar-theme",
-			OnPress: func() {
-				switch a.ThemePref.Get() {
-				case "dark":
-					cx.SetAppearance(core.AppearanceLight)
-					a.ThemePref.Set("light")
-				case "light":
-					cx.SetAppearance(core.AppearanceSystem)
-					a.ThemePref.Set("")
-				default: // 跟随系统 → 强制暗
-					cx.SetAppearance(core.AppearanceDark)
-					a.ThemePref.Set("dark")
-				}
-			}}
-	})
-}
-
 // shellPages 页签容器。
 //
 // 为什么不用 core.Dynamic 按页签区域替换：框架缺陷 #1（docs/nsgo-bugs.md）
