@@ -251,6 +251,12 @@ func (a *App) Navigate(id string) {
 // Navigate——返回不改写 prevTab，否则 detail→player→Back(detail)
 // →Back 时 prevTab 已被覆盖成 player，形成 detail↔player 乒乓。
 func (a *App) Back() {
+	// 首页面板（搜索/历史/收藏）打开时返回 = 关面板回分类浏览，
+	// 而非 tab 级返回——Tab 没变，prevTab 对面板无意义。
+	if a.Tab.Get() == "home" && a.HomeView.Get() != "" {
+		a.HomeView.Set("")
+		return
+	}
 	back := a.prevTab
 	if back == "" || back == a.Tab.Get() {
 		back = "home"
