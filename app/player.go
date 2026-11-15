@@ -338,7 +338,6 @@ func overlayBox(cx *core.Scope, color core.Color, text string) core.View {
 func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
 	return core.Dynamic(func(*core.Scope) core.Node {
 		visible := st.barVisible.Get()
-		p := cx.Palette()
 		if !visible {
 			// 隐藏时保留一个透明热区，鼠标进入恢复。
 			return core.View{
@@ -353,26 +352,27 @@ func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
 			Style: core.Style{
 				Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0),
 				Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10,
-				Padding:    core.Symmetric(6, 12),
-				Background: p.Background,
+				Padding:    core.Symmetric(8, 14),
+				// B 站控制栏：半透明黑覆盖在视频上，白字白图标。
+				Background: core.RGBA(0x000000, 0.55),
 			},
 			Children: []core.Node{
 				// 播放/暂停。
 				core.View{
 					Style:    core.Style{Width: core.Pt(28), Height: core.Pt(28), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-					Children: []core.Node{ui.Icon(playIcon(st), 18, func() core.Color { return p.Text })},
+					Children: []core.Node{ui.Icon(playIcon(st), 18, func() core.Color { return core.RGB(0xffffff) })},
 					OnPress:  func(core.PressEvent) { st.paused.Update(func(v bool) bool { return !v }) },
 				},
 				// 快退 10s。
 				core.View{
 					Style:    core.Style{Width: core.Pt(26), Height: core.Pt(28), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-					Children: []core.Node{ui.Text("-10s", 10, ui.Medium, func() core.Color { return p.Text })},
+					Children: []core.Node{ui.Text("-10s", 10, ui.Medium, func() core.Color { return core.RGB(0xffffff) })},
 					OnPress:  func(core.PressEvent) { st.ref.Seek(maxDur(st.position.Get()-10*time.Second, 0)) },
 				},
 				// 快进 10s。
 				core.View{
 					Style:    core.Style{Width: core.Pt(30), Height: core.Pt(28), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-					Children: []core.Node{ui.Text("+10s", 10, ui.Medium, func() core.Color { return p.Text })},
+					Children: []core.Node{ui.Text("+10s", 10, ui.Medium, func() core.Color { return core.RGB(0xffffff) })},
 					OnPress: func(core.PressEvent) {
 						d := st.duration.Get()
 						next := st.position.Get() + 10*time.Second
@@ -389,7 +389,7 @@ func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
 					ContentFunc: func() string {
 						return fmtDuration(st.position.Get()) + " / " + fmtDuration(st.duration.Get())
 					},
-					Style: core.Style{FontSize: 11, Color: p.TextMuted},
+					Style: core.Style{FontSize: 11, Color: core.RGBA(0xffffff, 0.8)},
 				},
 				// 倍速。
 				core.View{
@@ -402,7 +402,7 @@ func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
 							}
 							return fmtRate(r)
 						},
-						Style: core.Style{FontSize: 12, Color: p.Text},
+						Style: core.Style{FontSize: 12, Color: core.RGB(0xffffff)},
 					}},
 					OnPress: func(core.PressEvent) {
 						st.rate.Update(func(r float32) float32 {
@@ -426,7 +426,7 @@ func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
 				// 全屏。
 				core.View{
 					Style:    core.Style{Width: core.Pt(28), Height: core.Pt(28), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-					Children: []core.Node{ui.Icon(lucide.Maximize, 16, func() core.Color { return p.Text })},
+					Children: []core.Node{ui.Icon(lucide.Maximize, 16, func() core.Color { return core.RGB(0xffffff) })},
 					OnPress:  func(core.PressEvent) { desktop.ToggleFullScreen(cx) },
 				},
 			},
@@ -515,14 +515,14 @@ func progressSlider(cx *core.Scope, st *playerState) core.Node {
 			}
 		},
 		TrackStyle:     core.Style{Height: core.Pt(4), CornerRadius: 2},
-		IndicatorStyle: core.Style{CornerRadius: 2},
+		IndicatorStyle: core.Style{Background: theme.AccentBili, CornerRadius: 2},
+		ThumbStyle:     core.Style{Background: theme.AccentBili},
 	}
 }
 
 // volumeControl 音量：图标点击静音，拖动调音量。
 func volumeControl(cx *core.Scope, st *playerState) core.Node {
 	return core.Dynamic(func(*core.Scope) core.Node {
-		p := cx.Palette()
 		icon := lucide.Volume2
 		if st.muted.Get() || st.volume.Get() == 0 {
 			icon = lucide.VolumeX
@@ -534,7 +534,7 @@ func volumeControl(cx *core.Scope, st *playerState) core.Node {
 			Children: []core.Node{
 				core.View{
 					Style:    core.Style{Width: core.Pt(24), Height: core.Pt(24), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-					Children: []core.Node{ui.Icon(icon, 16, func() core.Color { return p.Text })},
+					Children: []core.Node{ui.Icon(icon, 16, func() core.Color { return core.RGB(0xffffff) })},
 					OnPress:  func(core.PressEvent) { st.muted.Update(func(m bool) bool { return !m }) },
 				},
 				base.Slider{
@@ -549,7 +549,8 @@ func volumeControl(cx *core.Scope, st *playerState) core.Node {
 						st.muted.Set(false)
 					},
 					TrackStyle:     core.Style{Height: core.Pt(3), CornerRadius: 2},
-					IndicatorStyle: core.Style{CornerRadius: 2},
+					IndicatorStyle: core.Style{Background: theme.AccentBili, CornerRadius: 2},
+					ThumbStyle:     core.Style{Background: theme.AccentBili},
 				},
 			},
 		}
