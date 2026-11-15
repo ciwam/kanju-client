@@ -422,7 +422,7 @@ func fmtRate(r float32) string {
 // showBar 显示控制栏并安排 3 秒后自动隐藏（暂停时不隐藏）。
 // hideGen 递增使旧的定时 goroutine 失效。
 func (st *playerState) showBar(cx *core.Scope) {
-	st.showBar(cx)
+	st.barVisible.Set(true)
 	st.hideGen.Set(st.hideGen.Get() + 1)
 	gen := st.hideGen.Get()
 	go func() {
