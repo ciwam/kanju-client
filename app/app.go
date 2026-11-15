@@ -265,6 +265,13 @@ func (a *App) Back() {
 	a.Tab.Set(back)
 }
 
+// GoHome 保底导航：任何页面点 Kanju 标题回首页影片推荐（清面板）。
+func (a *App) GoHome() {
+	ClientLog("[nav] GoHome from %s (view=%q)", a.Tab.Get(), a.HomeView.Get())
+	a.Tab.Set("home")
+	a.HomeView.Set("")
+}
+
 // OpenSearch 进入首页的搜索面板并预填关键词。
 func (a *App) OpenSearch(keyword string) {
 	ClientLog("[nav] 打开搜索面板 %q", keyword)

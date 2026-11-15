@@ -119,7 +119,14 @@ func appTopBar(cx *core.Scope, a *App) core.Node {
 		// left：返回 + 标题
 		[]core.Node{
 			backVisible,
-			theme.Title("Kanju", 17, core.FontWeightSemibold),
+			// 保底导航：任何页面点 Kanju 标题回首页（影片推荐）。
+			core.View{
+				StyleFunc: func() core.Style {
+					return core.Style{Hover: &core.Style{Opacity: core.Alpha(0.7)}, CornerRadius: 6, Padding: core.Symmetric(2, 6)}
+				},
+				Children: []core.Node{theme.Title("Kanju", 17, core.FontWeightSemibold)},
+				OnPress:  func(core.PressEvent) { a.GoHome() },
+			},
 		},
 		// center：全局搜索框
 		[]core.Node{
