@@ -241,16 +241,19 @@ func appTopBar(cx *core.Scope, a *App) core.Node {
 	// 手机：导航收进底部栏，顶栏 = logo + 搜索框 + 搜索按钮（最右，
 	// 与 logo 左边距对称）；主题切换按钮已移除。
 	if theme.IsAndroid() {
+		// 搜索框不设 MaxWidth：占满剩余空间，搜索按钮才贴右缘
+		//（MaxWidth 限制后剩余空间滞留行尾，按钮被推离右边）。
+		input := searchInput
+		input.Style = core.Style{FlexGrow: 1}
 		return theme.AppBar(cx,
 			// left：logo
 			[]core.Node{logo},
-			// center：全局搜索框（搜索按钮挪到最右：logo 左边距 =
-			// AppBar padding 的 PagePadding，右侧对称即按钮贴右缘）。
+			// center：全局搜索框
 			[]core.Node{
 				core.View{
 					Style:    core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, AlignItems: core.AlignCenter},
 					Desktop:  core.DesktopViewProps{WindowDrag: core.WindowDragOff},
-					Children: []core.Node{searchInput, searchBtn},
+					Children: []core.Node{input, searchBtn},
 				},
 			},
 			// right：无（搜索按钮在 center 内已贴最右）。
