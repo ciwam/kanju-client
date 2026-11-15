@@ -197,7 +197,13 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 						AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 						Background: core.RGB(0x111111)},
 					Children: []core.Node{
-						theme.Poster(a.API.ImageURL(cover, a.DetailTitle.Get()), a.DetailTitle.Get(), 160, 224),
+						// 封面铺满播放器区域（Cover 裁剪，不再用原始小尺寸）。
+						core.Image{
+							Source:     core.Src(a.API.ImageURL(cover, a.DetailTitle.Get())),
+							ResizeMode: core.Cover,
+							Label:      a.DetailTitle.Get(),
+							Style:      core.Style{Width: core.Pct(100), Height: core.Pct(100)},
+						},
 					},
 				}
 			}),
