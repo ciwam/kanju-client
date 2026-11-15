@@ -9,8 +9,8 @@
 #   ./release.sh 0.2.0 upload   # 指定版本号上传（默认取 nsgo.yaml 的 version）
 #
 # 上传规则:
-#   - tag 形如 v<version>-<时间戳>（yyyyMMddHHmmss），每次发布都是新 Release（不覆盖历史，
-#     测试阶段频繁发包可随时回退任意版本）
+#   - 固定 tag "latest"：每次发版替换旧 Release（不累积 tag/历史 Release），
+#     tag 指向最新 commit；/releases/latest 下载链接不变）
 #   - install.sh / install.ps1 不上传
 #
 # 凭据来源（按顺序）:
@@ -48,10 +48,10 @@ if [ -z "${VERSION:-}" ]; then
     VERSION=$(sed -n 's/^version: *//p' nsgo.yaml | head -1)
 fi
 [ -z "$VERSION" ] && { echo "✗ 未指定版本且 nsgo.yaml 无 version"; exit 1; }
-# tag 追加发版时间戳（yyyyMMddHHmmss，本地时间）：测试阶段频繁发包，
-# 同版本号每次发都是新 Release，不覆盖历史；时间戳可读出发布时刻。
-STAMP=$(date +%Y%m%d%H%M%S)
-TAG="v${VERSION}-${STAMP}"
+# 固定单一 tag "latest"：每次发版删旧 Release + 移动 tag 到最新 commit
+# 再重建——正式 Release 必须有 tag（GitHub API 强制），这是不累积 tag
+# 的唯一方式。用户侧 /releases/latest 下载页不变。
+TAG="latest"
 
 build_pkgs() {
     echo "==> 清理构建缓存（go 编译/测试缓存 + dist 旧产物）"
@@ -113,28 +113,22 @@ upload_pkgs() {
 
     api() { curl -sf -H "$AUTH" -H "Accept: application/vnd.github+json" "$@"; }
 
-    # Release 是否已存在（正常不会，tag 含时间戳；防御性保留）。
-    if api "https://api.github.com/repos/$REPO/releases/tags/$TAG" > /dev/null 2>&1; then
-        echo "==> Release $TAG 已存在，追加资产"
-        RELEASE_ID=$(api "https://api.github.com/repos/$REPO/releases/tags/$TAG" | sed -n 's/.*"id": \([0-9]*\),.*/\1/p' | head -1)
-    else
-        echo "==> 创建 Release $TAG"
-        BODY=$(jq -n --arg tag "$TAG" --arg name "Kanju $VERSION ($STAMP)" \
-            '{tag_name: $tag, name: $name, body: "Kanju 客户端构建"}' 2>/dev/null \
-            || printf '{"tag_name":"%s","name":"Kanju %s (%s)","body":"Kanju 客户端构建"}' "$TAG" "$VERSION" "$STAMP")
-        RELEASE_ID=$(api -X POST -d "$BODY" "https://api.github.com/repos/$REPO/releases" | sed -n 's/.*"id": \([0-9]*\),.*/\1/p' | head -1)
+    # 固定 tag 发版：旧 Release 连同 tag 一起删，重建到当前 commit。
+    if OLD_ID=$(api "https://api.github.com/repos/$REPO/releases/tags/$TAG" 2>/dev/null | sed -n 's/.*"id": \([0-9]*\),.*/\1/p' | head -1) && [ -n "$OLD_ID" ]; then
+        echo "==> 删除旧 Release $TAG (id=$OLD_ID)"
+        api -X DELETE "https://api.github.com/repos/$REPO/releases/$OLD_ID" 2>/dev/null || true
+        curl -s -X DELETE -H "$AUTH" "https://api.github.com/repos/$REPO/git/refs/tags/$TAG" -o /dev/null
     fi
-    [ -n "$RELEASE_ID" ] || { echo "✗ 创建/查询 Release 失败"; exit 1; }
+    echo "==> 创建 Release $TAG（指向最新 commit）"
+    BODY=$(jq -n --arg tag "$TAG" --arg name "Kanju $VERSION" --arg sha "$(git rev-parse HEAD)" \
+        '{tag_name: $tag, name: $name, body: "Kanju 客户端构建", target_commitish: $sha}' 2>/dev/null \
+        || printf '{"tag_name":"%s","name":"Kanju %s","body":"Kanju 客户端构建","target_commitish":"%s"}' "$TAG" "$VERSION" "$(git rev-parse HEAD)")
+    RELEASE_ID=$(api -X POST -d "$BODY" "https://api.github.com/repos/$REPO/releases" | sed -n 's/.*"id": \([0-9]*\),.*/\1/p' | head -1)
+    [ -n "$RELEASE_ID" ] || { echo "✗ 创建 Release 失败"; exit 1; }
 
     UPLOAD_URL="https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets?name="
     for f in "${FILES[@]}"; do
         name=$(basename "$f")
-        # 删同名旧资产（防御，tag 含时间戳 时正常不存在）。
-        for id in $(api "https://api.github.com/repos/$REPO/releases/$RELEASE_ID/assets" 2>/dev/null \
-            | python3 -c "import json,sys;[print(a['id']) for a in json.load(sys.stdin) if a['name']=='$name']" 2>/dev/null); do
-            api -X DELETE "https://api.github.com/repos/$REPO/releases/assets/$id" >/dev/null
-            echo "    已删旧资产 $name"
-        done
         echo "==> 上传 $name"
         curl -sf -X POST -H "$AUTH" -H "Content-Type: application/octet-stream" \
             --data-binary "@$f" "${UPLOAD_URL}${name}" > /dev/null \
