@@ -335,7 +335,8 @@ func browseView(cx *core.Scope, a *App,
 			return core.Style{Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
 		},
 		Children: []core.Node{
-			homeToolbar(cx, a),
+			// 搜索/历史/收藏入口已上移全局顶栏（appTopBar），首页不再
+			// 重复放工具栏。
 			kindSwitcher(cx, a, kind, sub, child, groups),
 			core.Dynamic(func(*core.Scope) core.Node {
 				t := sectionTitle.Get()
@@ -365,38 +366,6 @@ func browseView(cx *core.Scope, a *App,
 	}
 }
 
-// homeToolbar 首页工具行：搜索框（回车进搜索面板）+ 历史/收藏入口。
-func homeToolbar(cx *core.Scope, a *App) core.Node {
-	keyword := core.NewSignal(cx, a.SearchKeyword.Get())
-	return core.View{
-		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}
-		},
-		Children: []core.Node{
-			ui.Input{
-				Value:       keyword.Get,
-				OnChange:    keyword.Set,
-				Placeholder: "搜索片名，回车搜索…",
-				TestID:      "home-keyword",
-				OnSubmit:    func(string) { a.SearchKeyword.Set(keyword.Get()); a.HomeView.Set("search") },
-				Style:       core.Style{FlexGrow: 1, FlexShrink: 1},
-			},
-			ui.Button{Text: "搜索", Variant: ui.ButtonPrimary, TestID: "home-search", OnPress: func() {
-				a.SearchKeyword.Set(keyword.Get())
-				a.HomeView.Set("search")
-			}},
-			ui.Button{Text: "历史", Variant: ui.ButtonSecondary, TestID: "home-history", OnPress: func() {
-				a.HomeView.Set("history")
-			}},
-			ui.Button{Text: "收藏", Variant: ui.ButtonSecondary, TestID: "home-favorites", OnPress: func() {
-				a.HomeView.Set("favorites")
-			}},
-		},
-	}
-}
-
-// kindSwitcher 顶部：电影/剧集分段 + 分类 chips（base.Tabs 官方控件，
-// 带键盘导航、hover 反馈与按下缩放）。
 func kindSwitcher(cx *core.Scope, a *App, kind *core.Signal[string], sub, child *core.Signal[int], groups func() []tabGroup) core.Node {
 	return core.Dynamic(func(*core.Scope) core.Node {
 		gs := groups()
@@ -607,11 +576,16 @@ func buildPosterGrid(cx *core.Scope, a *App, items *core.Signal[[]api.DoubanItem
 }
 
 // posterCardStyle 海报卡片共享样式（含 hover/active 状态样式，包级单例
-// 避免每个 cell 每次渲染新建闭包）。
+// 避免每个 cell 每次渲染新建闭包）。B 站桌面版卡片交互：hover 浮起
+// （阴影 + 上移 2pt）。
 var posterCardStyle = core.Style{
-	Width: core.Pct(100), AspectRatio: 0.7, CornerRadius: 6,
+	Width: core.Pct(100), AspectRatio: 0.7, CornerRadius: 8,
 	Background: core.RGB(0xD9D9D9), Overflow: core.Hidden,
-	Hover:  &core.Style{Background: core.RGB(0xC8C8C8)},
+	Hover: &core.Style{
+		Background: core.RGB(0xC8C8C8),
+		Shadows: []core.BoxShadow{{Offset: core.Point{Y: 4}, Blur: 12, Color: core.RGBA(0x000000, 0.18)}},
+		Transform: core.Transform{TranslateY: -2},
+	},
 	Active: &core.Style{Transform: core.Transform{Scale: 0.98}},
 }
 

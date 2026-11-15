@@ -74,15 +74,6 @@ func searchPanel(cx *core.Scope, a *App) core.Node {
 		})
 	})
 
-	inputRow := core.View{
-		StyleFunc: func() core.Style { return core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, FlexShrink: 1} },
-		Children: []core.Node{
-			ui.Input{Value: keyword.Get, OnChange: keyword.Set, Placeholder: "搜索片名…", TestID: "keyword",
-				OnSubmit: func(string) { submit() }, Style: core.Style{FlexGrow: 1}},
-			ui.Button{Text: "搜索", Variant: ui.ButtonPrimary, OnPress: func() { submit() }, TestID: "search"},
-		},
-	}
-
 	return core.View{
 		StyleFunc: func() core.Style {
 			// 页面级边距：与 home 一致（20/16），内容不再贴边。
@@ -90,21 +81,8 @@ func searchPanel(cx *core.Scope, a *App) core.Node {
 				Padding: core.Symmetric(16, 20)}
 		},
 		Children: []core.Node{
-			core.View{
-				StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}
-				},
-				Children: []core.Node{
-					// 返回 = 关闭搜索面板回分类浏览（面板是首页内的一层，
-					// 与历史/收藏的 panelFrame 同语义；走 a.Back() 会跳到
-					// 陈旧的 prevTab 或无效——Tab 在进入面板时没有变化）。
-					ui.Button{Text: "返回", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "back", OnPress: func() {
-						a.HomeView.Set("")
-					}},
-					theme.Title("搜索", 17, ui.Semibold),
-					inputRow,
-				},
-			},
+			// 搜索框在全局顶栏（appTopBar），面板只留状态与结果；
+			// 返回也在顶栏（HomeView!="" 时显示，关面板回浏览）。
 			core.Dynamic(func(*core.Scope) core.Node {
 				// 状态行：搜索中 / 结果计数。
 				var parts string

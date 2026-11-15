@@ -121,29 +121,13 @@ func favoritesPanel(cx *core.Scope, a *App) core.Node {
 	))
 }
 
-// panelFrame 面板外壳：标题行（返回 + 标题）+ 内容。返回关闭面板
-// 回分类浏览（面板是首页内的一层，Back 的 prevTab 恒为 home）。
+// panelFrame 面板外壳：仅内容。返回与标题已上移全局顶栏
+// （appTopBar；HomeView!="" 时显示返回，关闭面板回分类浏览）。
 func panelFrame(cx *core.Scope, a *App, title string, content core.Node) core.View {
-	return core.View{
-		StyleFunc: func() core.Style {
-			return core.Style{Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden,
-				Padding: core.Symmetric(16, 20)}
-		},
-		Children: []core.Node{
-			core.View{
-				StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}
-				},
-				Children: []core.Node{
-					ui.Button{Text: "返回", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "back", OnPress: func() {
-						a.HomeView.Set("")
-					}},
-					theme.Title(title, 17, ui.Semibold),
-				},
-			},
-			content,
-		},
-	}
+	_ = a
+	_ = title
+	v, _ := content.(core.View)
+	return v
 }
 
 // backButton 详情/播放器/设置页的左上角返回。

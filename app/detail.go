@@ -261,13 +261,9 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 			} else {
 				head = append(head, theme.Title(a.DetailTitle.Get(), 20, ui.Semibold))
 			}
-			children := []core.Node{core.View{
-				StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}
-				},
-				Children: []core.Node{backButton(cx, a)},
-			}}
-			children = append(children, head...)
+			// 返回按钮在全局顶栏（appTopBar，非 home 页签时显示），
+			// 页面内不再重复放。
+			children := append([]core.Node{}, head...)
 
 			children = append(children,
 				core.Dynamic(func(*core.Scope) core.Node {
@@ -464,7 +460,7 @@ func subjectHead(cx *core.Scope, a *App, s *api.Subject) []core.Node {
 	info := []core.Node{core.View{
 		StyleFunc: func() core.Style { return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10} },
 		Children: []core.Node{
-			theme.Title(s.Title, 20, ui.Semibold),
+			theme.Title(s.Title, 22, ui.Semibold),
 			favButton(cx, a),
 			// 影片信息后台刷新中（SWR stale→refresh 检测到变化）：
 			// 旋转指示 + 文案，1.2 秒后新信息自动替换。
@@ -548,9 +544,11 @@ func channelSection(cx *core.Scope, a *App, ch api.Channel, play func(api.Episod
 				StyleFunc: func() core.Style {
 					p := cx.Palette()
 					st := core.Style{
-						Padding: core.Symmetric(3, 10), CornerRadius: 6, FontSize: 12,
-						Background: p.Background, Color: p.Text,
+						Padding: core.Symmetric(6, 14), CornerRadius: 6, FontSize: 13,
+						AlignItems: core.AlignCenter, MinWidth: core.Pt(72),
+						Background: p.Surface, Color: p.Text,
 						BorderColor: p.Border, BorderWidth: 1, BorderStyle: core.BorderSolid,
+						Hover: &core.Style{BorderColor: p.Accent, Color: p.Accent},
 					}
 					if current {
 						st.Background = p.Accent

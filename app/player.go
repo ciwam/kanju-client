@@ -283,7 +283,6 @@ func Player(cx *core.Scope, a *App) core.Node {
 					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}
 				},
 				Children: []core.Node{
-					backButton(cx, a),
 					theme.Title(title, 15, ui.Semibold),
 				},
 			}

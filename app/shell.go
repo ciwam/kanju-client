@@ -5,6 +5,8 @@ import (
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // Shell 已登录的主外壳：单内容区（页内导航），设置走菜单栏。
@@ -49,8 +51,88 @@ func Shell(cx *core.Scope, a *App) core.Node {
 		StyleFunc: func() core.Style {
 			return theme.Fill().Merge(core.Style{Overflow: core.Hidden})
 		},
-		Children: []core.Node{shellPages(cx, a)},
+		Children: []core.Node{
+			// 播放器页签时顶栏隐藏（全屏沉浸，返回靠页面内控制栏）。
+			core.View{
+				StyleFunc: func() core.Style {
+					st := appBarStyle(cx)
+					if a.Tab.Get() == "player" {
+						st.Display = core.DisplayNone
+					}
+					return st
+				},
+				Children: []core.Node{appTopBar(cx, a)},
+			},
+			shellPages(cx, a),
+		},
 	}
+}
+
+// appBarStyle 顶栏容器样式：白底卡片浮于浅灰页面之上。
+func appBarStyle(cx *core.Scope) core.Style {
+	p := cx.Palette()
+	return core.Style{
+		Direction: core.Row, AlignItems: core.AlignCenter, Gap: 16,
+		Padding:     core.Symmetric(10, 20),
+		Background:  p.Surface,
+		Borders:     core.Edges{Bottom: 1},
+		BorderColors: core.EdgeColors{Bottom: p.Border},
+		BorderStyle: core.BorderSolid,
+		FlexShrink:  0,
+	}
+}
+
+// appTopBar 全局顶栏（B 站桌面版）：左返回+logo、中全局搜索框、
+// 右历史/收藏/设置图标入口。搜索提交复用 OpenSearch 链路（面板
+// 自动发起搜索）；返回按钮条件显示（home 无面板时隐藏）。
+func appTopBar(cx *core.Scope, a *App) core.Node {
+	keyword := core.NewSignal(cx, "")
+	searchInput := ui.Input{
+		Value:       keyword.Get,
+		OnChange:    keyword.Set,
+		Placeholder: "搜索片名…",
+		TestID:      "appbar-search",
+		Style:       core.Style{FlexGrow: 1, MaxWidth: core.Pt(480)},
+		OnSubmit:    func(string) { a.OpenSearch(keyword.Get()) },
+	}
+	searchBtn := ui.Button{Text: "搜索", Variant: ui.ButtonPrimary, TestID: "appbar-search-btn",
+		OnPress: func() { a.OpenSearch(keyword.Get()) }}
+
+	// 返回按钮：非 home 页签或 home 面板打开时显示。
+	backVisible := core.Dynamic(func(*core.Scope) core.Node {
+		show := a.Tab.Get() != "home" || a.HomeView.Get() != ""
+		st := core.Style{}
+		if !show {
+			st.Display = core.DisplayNone
+		}
+		return core.View{Style: st, Children: []core.Node{backButton(cx, a)}}
+	})
+
+	// 右侧图标入口。
+	entry := func(label, testID string, icon func() *core.SVG, press func()) core.Node {
+		return ui.Button{Variant: ui.ButtonGhost, Icon: icon, Label: label, TestID: testID, OnPress: press}
+	}
+
+	return theme.AppBar(cx,
+		// left：返回 + 标题
+		[]core.Node{
+			backVisible,
+			theme.Title("Kanju", 17, core.FontWeightSemibold),
+		},
+		// center：全局搜索框
+		[]core.Node{
+			core.View{
+				Style: core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, AlignItems: core.AlignCenter, MaxWidth: core.Pt(560)},
+				Children:  []core.Node{searchInput, searchBtn},
+			},
+		},
+		// right：历史 / 收藏 / 设置
+		[]core.Node{
+			entry("历史", "appbar-history", lucide.Clock, func() { a.Tab.Set("home"); a.HomeView.Set("history") }),
+			entry("收藏", "appbar-favorites", lucide.Heart, func() { a.Tab.Set("home"); a.HomeView.Set("favorites") }),
+			entry("设置", "appbar-settings", lucide.Settings, func() { a.Navigate("settings") }),
+		},
+	)
 }
 
 // shellPages 页签容器。
