@@ -33,8 +33,11 @@ func historyPanel(cx *core.Scope, a *App) core.Node {
 			})
 		}()
 	}
+	// 面板打开时刷新（常驻后 effect 只挂载一次，需 track 面板可见性）。
 	cx.Effect(func() {
-		core.Untracked(cx, func() bool { refresh(); return true })
+		if a.Tab.Get() == "home" && a.HomeView.Get() == "history" {
+			core.Untracked(cx, func() bool { refresh(); return true })
+		}
 	})
 
 	return panelFrame(cx, a, "观看历史", listPage(cx, a,
@@ -74,8 +77,11 @@ func favoritesPanel(cx *core.Scope, a *App) core.Node {
 			})
 		}()
 	}
+	// 面板打开时刷新（常驻后 effect 只挂载一次，需 track 面板可见性）。
 	cx.Effect(func() {
-		core.Untracked(cx, func() bool { refresh(); return true })
+		if a.Tab.Get() == "home" && a.HomeView.Get() == "favorites" {
+			core.Untracked(cx, func() bool { refresh(); return true })
+		}
 	})
 
 	remove := func(f api.Favorite) {
