@@ -339,12 +339,10 @@ func playFallbackWith(cx *core.Scope, a *App, play func(string) (api.PlayResult,
 	return api.PlayResult{}, lastErr
 }
 
-// favButton 收藏/已收藏切换按钮（状态在 App.DetailFav）。
+// favButton 收藏/已收藏切换按钮（状态在 App.DetailFav）。内嵌后端
+// 的收藏接口同样可用（NoAuth 虚拟 admin），不再区分模式。
 func favButton(cx *core.Scope, a *App) core.Node {
 	return core.Dynamic(func(*core.Scope) core.Node {
-		if a.Embedded.Get() {
-			return core.View{} // 内嵌模式历史数据按 URL 键，收藏语义留给外部服务器
-		}
 		if a.DetailFav.Get() {
 			return ui.Button{Text: "已收藏", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
 				OnPress: func() { a.ToggleFav(cx) }}

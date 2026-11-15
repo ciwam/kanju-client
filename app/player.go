@@ -624,7 +624,10 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 		}
 
 		head := []core.Node{
-			theme.Title(title, 16, ui.Semibold),
+			core.View{
+				Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
+				Children: []core.Node{theme.Title(title, 16, ui.Semibold), favButton(cx, a)},
+			},
 		}
 		if meta != "" {
 			head = append(head, ui.Text(meta, 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted }))
