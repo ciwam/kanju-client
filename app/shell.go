@@ -11,6 +11,8 @@ import (
 
 // Shell 已登录的主外壳：单内容区（页内导航），设置走菜单栏。
 func Shell(cx *core.Scope, a *App) core.Node {
+	// B 站桌面版主题（主色蓝、浅灰页面底、卡片白）——整个外壳子树继承。
+	cx.SetTheme(theme.BiliTheme())
 	// macOS 菜单栏：首项是 app 菜单；「设置…」⌘, 唤出设置页。
 	cx.Effect(func() {
 		core.Untracked(cx, func() bool {
