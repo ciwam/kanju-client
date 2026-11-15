@@ -126,15 +126,16 @@ upload_pkgs() {
         curl -s -X DELETE -H "$AUTH" "https://api.github.com/repos/$REPO/git/refs/tags/$TAG" -o /dev/null
     fi
     echo "==> 创建 Release $TAG（指向最新 commit）"
-    # build 号自动 +1 并写回 nsgo.yaml：固定 tag 下版本号不变，检查更新
-    # 比对本地 core.App().Build 与线上名称里的 build 号判断新旧。
-    BUILD=$(sed -n 's/^build_number: *//p' nsgo.yaml | head -1)
-    BUILD=$(( ${BUILD:-0} + 1 ))
-    sed -i '' -E "s/^(build_number: *)[0-9]+/\\1$BUILD/" nsgo.yaml
-    echo "    build_number -> $BUILD（已写回 nsgo.yaml，随代码一起提交）"
-    BODY=$(jq -n --arg tag "$TAG" --arg name "Kanju $VERSION ($BUILD)" --arg sha "$(git rev-parse HEAD)" \
+    # 发版时间戳（yyyyMMddHHmmss）写入 nsgo.yaml 的 build_number：固定
+    # tag 下版本号不变，检查更新比对本地 core.App().Build（构建时注入
+    # 的同一时间戳）与线上名称里的时间戳判断新旧。时间戳随发版单调
+    # 递增，nsgo.yaml 无需发版外的人工修改。
+    STAMP=$(date +%Y%m%d%H%M%S)
+    sed -i '' -E "s/^(build_number: *)[0-9]+/\\1$STAMP/" nsgo.yaml
+    echo "    build_number -> $STAMP（已写回 nsgo.yaml，随代码一起提交）"
+    BODY=$(jq -n --arg tag "$TAG" --arg name "Kanju $VERSION ($STAMP)" --arg sha "$(git rev-parse HEAD)" \
         '{tag_name: $tag, name: $name, body: "Kanju 客户端构建", target_commitish: $sha}' 2>/dev/null \
-        || printf '{"tag_name":"%s","name":"Kanju %s (%s)","body":"Kanju 客户端构建","target_commitish":"%s"}' "$TAG" "$VERSION" "$BUILD" "$(git rev-parse HEAD)")
+        || printf '{"tag_name":"%s","name":"Kanju %s (%s)","body":"Kanju 客户端构建","target_commitish":"%s"}' "$TAG" "$VERSION" "$STAMP" "$(git rev-parse HEAD)")
     RELEASE_ID=$(api -X POST -d "$BODY" "https://api.github.com/repos/$REPO/releases" | sed -n 's/.*"id": \([0-9]*\),.*/\1/p' | head -1)
     [ -n "$RELEASE_ID" ] || { echo "✗ 创建 Release 失败"; exit 1; }
 

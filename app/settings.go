@@ -1,7 +1,6 @@
 package app
 
 import (
-	"strconv"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -150,18 +149,18 @@ func versionCard(cx *core.Scope) core.Node {
 					return
 				}
 				ClientLog("[update] 本地 v%s build=%s 最新 name=%q tag=%s", app.Version, app.Build, latest, tag)
-				// 发版固定 tag "latest"、版本号不再变化，新旧以 build 号
-				// 判断：线上 Release 名称形如 "Kanju 0.1.0 (3)"，与本地
-				// core.App().Build 比对。名称解析不出 build 时退回字符串
-				// 不等即提示（保守方向，宁可误报不漏报）。
-				remoteBuild := releaseBuildOf(latest)
-				local, _ := strconv.Atoi(app.Build)
-				if remoteBuild > 0 && remoteBuild <= local {
+				// 发版固定 tag "latest"、版本号不再变化，新旧以构建时间戳
+				// 判断：release.sh 把发版时间戳（yyyyMMddHHmmss）写进
+				// nsgo.yaml 的 build_number（构建时注入 core.App().Build）
+				// 和 Release 名称 "Kanju 0.1.0 (ts)"。等宽时间戳字符串比
+				// 较等价于数值比较；本地未知（空/旧包）时保守提示更新。
+				remoteTS := releaseBuildOf(latest)
+				if app.Build != "" && remoteTS != "" && app.Build >= remoteTS {
 					result.Set("已是最新版本")
 					return
 				}
-				if remoteBuild > 0 {
-					result.Set(fmt.Sprintf("发现新版本（build %d > 本地 %s），点击下方链接下载", remoteBuild, app.Build))
+				if remoteTS != "" {
+					result.Set(fmt.Sprintf("发现新版本（%s > 本地 %s），点击下方链接下载", remoteTS, app.Build))
 				} else {
 					result.Set("发现新版本，点击下方链接下载")
 				}
@@ -250,19 +249,15 @@ func openAccelerated(rawURL string, cx *core.Scope) {
 	cx.Post(func() { cx.OpenURL(rawURL, nil) })
 }
 
-// releaseBuildOf 从 Release 名称解析 build 号（"Kanju 0.1.0 (3)" → 3）。
-// 无括号 build（旧版名称）返回 0。
-func releaseBuildOf(name string) int {
+// releaseBuildOf 从 Release 名称解析 build 标识（"Kanju 0.1.0 (ts)" →
+// "ts"，时间戳字符串）。无括号 build（旧版名称）返回 ""。
+func releaseBuildOf(name string) string {
 	i := strings.LastIndex(name, "(")
 	j := strings.LastIndex(name, ")")
 	if i < 0 || j <= i {
-		return 0
+		return ""
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(name[i+1 : j]))
-	if err != nil {
-		return 0
-	}
-	return n
+	return strings.TrimSpace(name[i+1 : j])
 }
 
 // releaseRepo 发布仓库（release.github，发布脚本与检查更新共用）。
