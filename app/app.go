@@ -62,6 +62,9 @@ type App struct {
 	// DetailLoadedURL 最近一次成功发起加载的影片 URL（防重判断：
 	// DetailURL 是"正在查看的影片"，两者不同时才需要加载）。
 	DetailLoadedURL string
+	// SelectedSourceIdx 播放页右栏当前选中的站源组索引（封面播放
+	// 按钮与选集列表共享：按钮播选中站源的第一集）。
+	SelectedSourceIdx *core.Signal[int]
 
 	// 播放器入参。PlayURL 是交给播放器的（代理改写后）地址；
 	// PlayEpisodeURL 是原始选集 URL，作为历史/续播的稳定匹配键。
@@ -139,6 +142,7 @@ func SetupForTest(cx *core.Scope, base string) *App {
 		DetailFav:          core.NewSignal(cx, false),
 		DetailNowPlaying:   core.NewSignal(cx, ""),
 		DetailUpdating:     core.NewSignal(cx, false),
+		SelectedSourceIdx:  core.NewSignal(cx, 0),
 		PlayTitle:          core.NewSignal(cx, ""),
 		PlayEpisodeURL:     core.NewSignal(cx, ""),
 		PlayURL:            core.NewSignal(cx, ""),

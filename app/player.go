@@ -592,7 +592,8 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 	// 简介展开态（面板局部信号）。
 	introExpanded := core.NewSignal(cx, false)
 	// 当前选中的站源组索引（站源 tab 切换，一次只显示一个站源）。
-	selectedSource := core.NewSignal(cx, 0)
+	// 信号挂 App（App.SelectedSourceIdx），封面播放按钮共用。
+	selectedSource := a.SelectedSourceIdx
 	return core.Dynamic(func(*core.Scope) core.Node {
 		s := a.DetailSubject.Get()
 		d := a.DetailData.Get()
