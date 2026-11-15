@@ -440,3 +440,67 @@ func TestDisplayNoneChildEffectTemp(t *testing.T) {
 		t.Fatal("DisplayNone 子树的 Effect 未首跑")
 	}
 }
+
+// TestEpisodeTitleMatchFormats 集数命名跨站源差异的换源匹配：
+// 「第01集」（量子/非凡）≈「第1集」（金鹰/暴风/极速）。
+func TestEpisodeTitleMatchFormats(t *testing.T) {
+	cases := [][2]string{
+		{"第01集", "第1集"},
+		{"第 08 集", "第08集"},
+		{"ＥＰ０７", "ep7"},
+		{"EP01", "ep1"},
+		{"第1集", "第1集"},
+	}
+	for _, c := range cases {
+		if !app.EpisodeTitleMatchForTest(c[0], c[1]) {
+			t.Errorf("%q 应匹配 %q", c[0], c[1])
+		}
+	}
+	if app.EpisodeTitleMatchForTest("第01集", "第02集") {
+		t.Error("不同集不应匹配")
+	}
+	if app.EpisodeTitleMatchForTest("第01集", "正片") {
+		t.Error("集数与正片不应匹配")
+	}
+}
+
+// TestPlayFallbackEpisodeFormatDiff 换源实战回归：量子「第01集」挂，
+// 金鹰同名集叫「第1集」——数字零填充差异必须能匹配。
+func TestPlayFallbackEpisodeFormatDiff(t *testing.T) {
+	var state *app.App
+	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		state = app.SetupForTest(cx, "http://127.0.0.1:1")
+		state.Embedded.Set(true)
+		state.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
+		state.DetailData.Set(&api.DetailResp{
+			Channels: []api.Channel{
+				{Name: "liangzi", SourceName: "量子资源", Episodes: []api.Episode{
+					{Title: "第01集", URL: "https://dead.example/s/1"},
+					{Title: "第02集", URL: "https://dead.example/s/2"},
+				}},
+				{Name: "jinyingyun", SourceName: "金鹰资源网", Episodes: []api.Episode{
+					{Title: "第1集", URL: "https://ok.example/play/1"},
+					{Title: "第2集", URL: "https://ok.example/play/2"},
+				}},
+			},
+		})
+		return app.Root(cx, state)
+	}, nsgotest.Size(1000, 700))
+	a.Settle()
+	ep := api.Episode{Title: "第01集", URL: "https://dead.example/s/1"}
+	failed := api.Channel{Name: "liangzi", SourceName: "量子资源"}
+	var tried []string
+	_, err := app.PlayFallbackForTest(state, ep, failed, func(url string) (api.PlayResult, error) {
+		tried = append(tried, url)
+		if strings.Contains(url, "ok.example") {
+			return api.PlayResult{URL: url, Type: "m3u8"}, nil
+		}
+		return api.PlayResult{}, &api.Err{Status: 404, Msg: "HTTP 404"}
+	})
+	if err != nil {
+		t.Fatalf("换源应成功（金鹰第1集 ≈ 第01集）: %v", err)
+	}
+	if len(tried) == 0 || !strings.Contains(tried[len(tried)-1], "ok.example/play/1") {
+		t.Fatalf("应匹配金鹰第1集，实际尝试: %v", tried)
+	}
+}

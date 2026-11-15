@@ -434,7 +434,7 @@ func (s *Server) getDetailViaHtml(ctx context.Context, source *SiteSource, detai
 	}
 	if source.RuleDetailIntro != "" {
 		if nodes := selectNodes(root, source.RuleDetailIntro); len(nodes) > 0 {
-			result["intro"] = textOf(nodes[0], "")
+			result["intro"] = sanitizeIntro(textOf(nodes[0], ""))
 		}
 	}
 
@@ -522,7 +522,7 @@ func (s *Server) getDetailViaJsonApi(ctx context.Context, source *SiteSource, vo
 	content := getMapStr(vod, "vod_content")
 	if content != "" {
 		content = regexp.MustCompile(`<[^>]+>`).ReplaceAllString(content, "")
-		result["intro"] = strings.TrimSpace(content)
+		result["intro"] = sanitizeIntro(content)
 	}
 
 	playFrom := getMapStr(vod, "vod_play_from")

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -360,4 +361,19 @@ func isDigits(s string) bool {
 		}
 	}
 	return true
+}
+
+// sanitizeIntro 清理简介文本：解码 HTML 实体（&nbsp;/&amp;/&#39; 等豆瓣
+// 接口与页面抓取常见残留）、全角空格与连续空白归一。UI 直接展示该文本。
+func sanitizeIntro(s string) string {
+	if s == "" {
+		return ""
+	}
+	s = html.UnescapeString(s)
+	// &nbsp; 解码为  ；与全角空格、普通空白一起压缩为单个空格，
+	// 再去掉文本首尾（豆瓣简介常用成串 nbsp 做缩进/间隔）。
+	s = strings.Join(strings.FieldsFunc(s, func(r rune) bool {
+		return r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '　' || r == 0x00a0 || r == 0x2003
+	}), " ")
+	return strings.TrimSpace(s)
 }

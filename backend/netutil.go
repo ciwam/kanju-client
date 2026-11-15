@@ -870,7 +870,7 @@ func (s *Server) handleDoubanSubject(w http.ResponseWriter, r *http.Request) {
 	if intro == "" {
 		intro = getMapStr(subject, "card_subtitle")
 	}
-	if intro == "" {
+	if intro = sanitizeIntro(intro); intro == "" {
 		subjectType := getMapStr(subject, "subject_type")
 		mobileURL := "https://m.douban.com/movie/subject/" + id + "/"
 		if subjectType != "movie" {
@@ -887,7 +887,7 @@ func (s *Server) handleDoubanSubject(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	data["intro"] = strings.TrimSpace(reWhitespace.ReplaceAllString(intro, " "))
+	data["intro"] = sanitizeIntro(intro)
 	writeJSON(w, 200, map[string]any{"isSuccess": true, "data": data})
 }
 
