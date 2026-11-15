@@ -126,7 +126,8 @@ func favoritesPanel(cx *core.Scope, a *App) core.Node {
 func panelFrame(cx *core.Scope, a *App, title string, content core.Node) core.View {
 	return core.View{
 		StyleFunc: func() core.Style {
-			return core.Style{Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
+			return core.Style{Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden,
+				Padding: core.Symmetric(16, 20)}
 		},
 		Children: []core.Node{
 			core.View{

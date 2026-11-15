@@ -62,7 +62,9 @@ func searchPanel(cx *core.Scope, a *App) core.Node {
 
 	return core.View{
 		StyleFunc: func() core.Style {
-			return core.Style{Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
+			// 页面级边距：与 home 一致（20/16），内容不再贴边。
+			return core.Style{Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden,
+				Padding: core.Symmetric(16, 20)}
 		},
 		Children: []core.Node{
 			core.View{
@@ -70,7 +72,12 @@ func searchPanel(cx *core.Scope, a *App) core.Node {
 					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}
 				},
 				Children: []core.Node{
-					backButton(cx, a),
+					// 返回 = 关闭搜索面板回分类浏览（面板是首页内的一层，
+					// 与历史/收藏的 panelFrame 同语义；走 a.Back() 会跳到
+					// 陈旧的 prevTab 或无效——Tab 在进入面板时没有变化）。
+					ui.Button{Text: "返回", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "back", OnPress: func() {
+						a.HomeView.Set("")
+					}},
 					theme.Title("搜索", 17, ui.Semibold),
 					inputRow,
 				},
