@@ -186,9 +186,19 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 	// 重播，见 docs/nsgo-bugs.md 限制节）；变化的部分（头部信息、
 	// 线路列表、封面覆盖层）各自用 Dynamic 包裹。
 
-	// 上双栏：左播放器 + 右选集列表。
+	// 上双栏：左播放器 + 右选集列表（桌面）；手机纵向时播放器固定高
+	// 在上、选集区在下方。
 	playerPane := core.View{
 		StyleFunc: func() core.Style {
+			// 手机：宽全占、16:9 高（AspectRatio），不参与伸展——保证
+			// 播放器完整展示在中上位置，下方留给信息与选集。
+			if theme.IsAndroid() {
+				return core.Style{
+					FlexShrink: 0, Overflow: core.Hidden,
+					Width: core.Pct(100), AspectRatio: 16.0 / 9.0,
+					CornerRadius: 8, Background: core.RGB(0x000000),
+				}
+			}
 			// 全屏时去圆角（视频铺满整窗）。
 			st := core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden, CornerRadius: 8, Background: core.RGB(0x000000)}
 			if desktop.FullScreen(cx) {
@@ -300,6 +310,10 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 
 	watchRow := core.View{
 		StyleFunc: func() core.Style {
+			// 手机（Android）：纵向——播放器在上，信息与选集在下方滚动。
+			if theme.IsAndroid() {
+				return core.Style{Direction: core.Column, Gap: 10, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
+			}
 			// 全屏时右栏收起、双栏间隙归零（B 站：全屏只有视频）。
 			st := core.Style{Direction: core.Row, Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
 			if desktop.FullScreen(cx) {
@@ -317,10 +331,18 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 						return core.Style{Display: core.DisplayNone}
 					}
 					p := cx.Palette()
-					return core.Style{
-						Width: core.Pt(320), FlexShrink: 0, Padding: core.All(8), Gap: 4,
-						Background: p.Background, CornerRadius: 8, Overflow: core.Hidden,
+					// 手机：选集区占剩余高度（在播放器下方）；桌面固定
+					// 320pt 右栏。
+					st := core.Style{Padding: core.All(8), Gap: 4,
+						Background: p.Background, CornerRadius: 8, Overflow: core.Hidden}
+					if theme.IsAndroid() {
+						st.FlexGrow = 1
+						st.FlexShrink = 1
+					} else {
+						st.Width = core.Pt(320)
+						st.FlexShrink = 0
 					}
+					return st
 				},
 				Children: []core.Node{episodeSidebar(cx, a)},
 			},
