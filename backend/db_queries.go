@@ -188,10 +188,10 @@ func (s *Server) getHistory(userID *int64) ([]*History, error) {
 	var err error
 	if userID != nil {
 		rows, err = s.db.Query(
-			"SELECT id, user_id, title, cover, source_name, source_url, detail_url, episode_title, play_url, play_position, duration, created_at FROM history WHERE user_id = ? ORDER BY created_at DESC LIMIT 100", *userID)
+			"SELECT id, user_id, title, COALESCE(cover,''), COALESCE(source_name,''), COALESCE(source_url,''), COALESCE(detail_url,''), episode_title, COALESCE(play_url,''), play_position, duration, created_at FROM history WHERE user_id = ? ORDER BY created_at DESC LIMIT 100", *userID)
 	} else {
 		rows, err = s.db.Query(
-			"SELECT id, user_id, title, cover, source_name, source_url, detail_url, episode_title, play_url, play_position, duration, created_at FROM history WHERE user_id IS NULL ORDER BY created_at DESC LIMIT 100")
+			"SELECT id, user_id, title, COALESCE(cover,''), COALESCE(source_name,''), COALESCE(source_url,''), COALESCE(detail_url,''), episode_title, COALESCE(play_url,''), play_position, duration, created_at FROM history WHERE user_id IS NULL ORDER BY created_at DESC LIMIT 100")
 	}
 	if err != nil {
 		return nil, err
@@ -202,7 +202,7 @@ func (s *Server) getHistory(userID *int64) ([]*History, error) {
 
 func (s *Server) getAllHistory() ([]*History, error) {
 	rows, err := s.db.Query(
-		"SELECT id, user_id, title, cover, source_name, source_url, detail_url, episode_title, play_url, play_position, duration, created_at FROM history ORDER BY created_at DESC LIMIT 200")
+		"SELECT id, user_id, title, COALESCE(cover,''), COALESCE(source_name,''), COALESCE(source_url,''), COALESCE(detail_url,''), episode_title, COALESCE(play_url,''), play_position, duration, created_at FROM history ORDER BY created_at DESC LIMIT 200")
 	if err != nil {
 		return nil, err
 	}

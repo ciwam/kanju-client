@@ -207,11 +207,18 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 						Style:      core.Style{Width: core.Pct(100), Height: core.Pct(100)},
 					}
 				}
-				// 遮罩上的播放按钮：聚合完成后才有站源可播。
+				// 遮罩上的播放按钮：聚合完成后才有站源可播。播放的是
+				// 右栏当前选中站源的第一集（selectedSource 共享）。
 				var playBtn core.Node
+				firstSourceLabel := ""
 				if d := a.DetailData.Get(); d != nil && len(d.Channels) > 0 {
 					groups := mergeChannels(d.Channels)
-					first := groups[0]
+					si := a.SelectedSourceIdx.Get()
+					if si >= len(groups) {
+						si = 0
+					}
+					first := groups[si]
+					firstSourceLabel = first.SourceName + " · " + first.Name
 					var firstEp api.Episode
 					if len(first.Episodes) > 0 {
 						firstEp = first.Episodes[0]
@@ -252,10 +259,19 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 						AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 						Background: core.RGBA(0x000000, 0.45)},
 					Children: func() []core.Node {
-						if playBtn != nil {
-							return []core.Node{playBtn}
+						if playBtn == nil {
+							return nil
 						}
-						return nil
+						// 按钮下方标明将播的站源（按钮跟随右栏 tab 选择，
+						// 标注避免"点按钮播了别的站源"的困惑）。
+						label := core.View{
+							Style: core.Style{Padding: core.Edges{Top: 10}},
+							Children: []core.Node{core.Text{
+								Content: "将播放：" + firstSourceLabel,
+								Style:   core.Style{FontSize: 12, Color: core.RGBA(0xffffff, 0.85)},
+							}},
+						}
+						return []core.Node{playBtn, label}
 					}(),
 				})
 				return core.View{
