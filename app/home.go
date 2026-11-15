@@ -19,9 +19,6 @@ var tvTabs = []tabGroup{
 		{Label: "日剧", Tag: "日剧"}, {Label: "韩剧", Tag: "韩剧"}, {Label: "动画", Tag: "动漫"},
 		{Label: "纪录片", Tag: "纪录片"},
 	}},
-	{Label: "热门综艺", Children: []tabOpt{
-		{Label: "综合", Tag: "综艺"}, {Label: "国内", Tag: "综艺"}, {Label: "国外", Tag: "综艺"},
-	}},
 }
 
 var movieTabs = []tabGroup{
@@ -385,18 +382,23 @@ func kindSwitcher(cx *core.Scope, a *App, kind *core.Signal[string], sub, child 
 
 		// 组 chips：显示分类的中文名（豆瓣无子项的组才回退 tag，
 		// TMDB 单层分类恒用 Label——Tag 是 g{id} 编码不能直接显示）。
-		chipRow := core.View{Style: core.Style{Direction: core.Row, Gap: 8, Wrap: core.Wrap}}
-		for i, grp := range gs {
-			i, grp := i, grp
-			label := grp.Label
-			if len(grp.Children) == 0 && a.PreferSourceSignal.Get() != "tmdb" {
-				label = grp.Tag
+		// 只有一个组时（如剧集只剩"热门剧集"）该行是冗余的——它恒被
+		// 选中且点不出别的，跳过不渲染，直接显示子项 chips。
+		var chipRow core.View
+		if len(gs) > 1 {
+			chipRow = core.View{Style: core.Style{Direction: core.Row, Gap: 8, Wrap: core.Wrap}}
+			for i, grp := range gs {
+				i, grp := i, grp
+				label := grp.Label
+				if len(grp.Children) == 0 && a.PreferSourceSignal.Get() != "tmdb" {
+					label = grp.Tag
+				}
+				chipRow.Children = append(chipRow.Children, chipButton(cx, label, si == i, func() {
+					ClientLog("[home] 点分类组 %q", label)
+					sub.Set(i)
+					child.Set(0)
+				}))
 			}
-			chipRow.Children = append(chipRow.Children, chipButton(cx, label, si == i, func() {
-				ClientLog("[home] 点分类组 %q", label)
-				sub.Set(i)
-				child.Set(0)
-			}))
 		}
 
 		// 子项 chips。
@@ -411,7 +413,10 @@ func kindSwitcher(cx *core.Scope, a *App, kind *core.Signal[string], sub, child 
 			}
 		}
 
-		children := []core.Node{seg, chipRow}
+		children := []core.Node{seg}
+		if chipRow.Children != nil {
+			children = append(children, chipRow)
+		}
 		if childRow.Children != nil {
 			children = append(children, childRow)
 		}
