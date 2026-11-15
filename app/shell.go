@@ -59,9 +59,14 @@ func Shell(cx *core.Scope, a *App) core.Node {
 			// （状态栏 top + 三键导航栏 bottom + 刘海左右），否则系统
 			// UI 盖住顶栏与底部导航。SafeArea 是响应式 Edges，读取在
 			// StyleFunc（样式提交，不销毁子树）。
+			// 底色 Surface（白）：状态栏/导航栏 padding 区露出的是根
+			// 容器背景，用白色与顶栏/底部导航（同为 Surface）连成一
+			// 体，消除系统栏区域的色差；页面自身的浅灰底由 shellPages
+			// 提供。
 			if theme.IsAndroid() {
 				sa := cx.Env().SafeArea()
 				st.Padding = core.Edges{Top: sa.Top, Bottom: sa.Bottom, Left: sa.Left, Right: sa.Right}
+				st.Background = cx.Palette().Surface
 			}
 			return st
 		},
@@ -344,7 +349,9 @@ func shellPages(cx *core.Scope, a *App) core.Node {
 	detailPage := core.View{StyleFunc: pageStyle(func() bool { return tab.Get() == "detail" }), Children: []core.Node{SubjectDetail(cx, a)}}
 	settingsPage := core.View{StyleFunc: pageStyle(func() bool { return tab.Get() == "settings" }), Children: []core.Node{Settings(cx, a)}}
 	return core.View{
-		Style:    core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden},
+		// 页面区浅灰底：根容器在 Android 上改涂 Surface（白，与系统栏
+		// 区连体），页面底色收回到这里（B 站页面底 #f6f7f8）。
+		Style:    core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden, Background: cx.Palette().Background},
 		Children: []core.Node{homeBrowse, homeSearch, homeHistory, homeFavorites, detailPage, settingsPage},
 	}
 }
