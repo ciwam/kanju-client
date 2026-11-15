@@ -230,7 +230,14 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 									Hover: &core.Style{Background: p.AccentHover, Transform: core.Transform{Scale: 1.06}},
 								}
 							},
-							Children: []core.Node{ui.Icon(lucide.Play, 32, func() core.Color { return core.RGB(0xffffff) })},
+							// busy 时显示 spinner：换源链路可达 7 秒以上，
+							// 无反馈会被认为"没点上"而连点。
+							Children: []core.Node{core.Dynamic(func(*core.Scope) core.Node {
+								if a.DetailPlayBusy.Get() != "" {
+									return ui.Spinner{}
+								}
+								return ui.Icon(lucide.Play, 32, func() core.Color { return core.RGB(0xffffff) })
+							})},
 							OnPress: func(core.PressEvent) {
 								a.PlayEpisode(cx, firstEp, first)
 							},

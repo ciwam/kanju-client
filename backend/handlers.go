@@ -554,6 +554,7 @@ func (s *Server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	hist, err := s.getHistory(&u.ID)
 	if err != nil {
+		logWarn("getHistory: %v", err)
 		writeJSON(w, 200, fail("获取历史失败"))
 		return
 	}
