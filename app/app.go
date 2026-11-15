@@ -62,6 +62,9 @@ type App struct {
 	// DetailLoadedURL 最近一次成功发起加载的影片 URL（防重判断：
 	// DetailURL 是"正在查看的影片"，两者不同时才需要加载）。
 	DetailLoadedURL string
+	// PlaySpeedKBps 当前播放站源的实测网速（KB/s，聚合测速），
+	// 进度条缓冲前沿估计用；0 表示未测到。
+	PlaySpeedKBps int
 	// SelectedSourceIdx 播放页右栏当前选中的站源组索引（封面播放
 	// 按钮与选集列表共享：按钮播选中站源的第一集）。
 	SelectedSourceIdx *core.Signal[int]
@@ -76,6 +79,9 @@ type App struct {
 	PlayEpisodeURL *core.Signal[string]
 	PlaySource     *core.Signal[string]
 	PlaySourceURL  *core.Signal[string]
+	// PlayBufferedSecs 播放进度条上的「已缓冲到」秒数（推断值，见
+	// player.go 缓冲估计）。0 表示无缓冲数据。
+	PlayBufferedSecs *core.Signal[int]
 }
 
 // Tab 定义侧栏页签。
@@ -152,6 +158,7 @@ func SetupForTest(cx *core.Scope, base string) *App {
 		PlayURL:            core.NewSignal(cx, ""),
 		PlaySource:         core.NewSignal(cx, ""),
 		PlaySourceURL:      core.NewSignal(cx, ""),
+		PlayBufferedSecs:   core.NewSignal(cx, 0),
 	}
 	return a
 }
@@ -370,6 +377,7 @@ func (a *App) OpenPlayer(title, playURL, episodeURL, sourceName, sourceURL strin
 	a.PlayURL.Set(playURL)
 	a.PlaySource.Set(sourceName)
 	a.PlaySourceURL.Set(sourceURL)
+	a.PlayBufferedSecs.Set(0)
 	if a.Tab.Get() != "detail" {
 		a.Tab.Set("detail")
 	}

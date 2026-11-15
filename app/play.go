@@ -62,6 +62,8 @@ func (a *App) PlayEpisode(cx *core.Scope, ep api.Episode, ch api.Channel) {
 				return
 			}
 			a.DetailNowPlaying.Set(ep.URL)
+			// 记录该站源的实测网速（KB/s）：进度条缓冲前沿估计用。
+			a.PlaySpeedKBps = ch.SpeedKBps
 			// 直链按类型改写成代理地址（防盗链/Referer 由代理层处理）。
 			playURL := client.PlaybackURL(r.URL, r.Type)
 			ClientLog("[play] 播放直链 %s (%s) -> %s", r.URL, r.Type, playURL)

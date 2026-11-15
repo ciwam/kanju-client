@@ -32,6 +32,7 @@ type playerState struct {
 	hideGen    *core.Signal[int]  // 隐藏定时代次，新显示使旧定时失效
 	// lastSavedSec 上次写进度的秒数（OnProgress 一秒多次，去重用）。
 	lastSavedSec int64
+	app          *App
 	ref          *core.Ref
 }
 
@@ -49,6 +50,7 @@ func newPlayerState(a *App, cx *core.Scope, volume float64, rate float32) *playe
 		attempts:   core.NewSignal(cx, 0),
 		barVisible: core.NewSignal(cx, true),
 		hideGen:    core.NewSignal(cx, 0),
+		app:        a,
 		ref:        &core.Ref{},
 	}
 	return st
@@ -241,8 +243,12 @@ func PlayerSurface(cx *core.Scope, a *App) core.Node {
 					ClientLog("[player] video OnLoad dur=%s（重建 Video 会再次触发）", fmtDuration(i.Duration))
 					st.duration.Set(i.Duration)
 				},
-				OnProgress: func(pos, dur time.Duration) { st.position.Set(pos); st.duration.Set(dur) },
-				OnBuffer:   func(b bool) { st.buffering.Set(b) },
+				OnProgress: func(pos, dur time.Duration) {
+					st.position.Set(pos)
+					st.duration.Set(dur)
+					updateBuffered(cx, st)
+				},
+				OnBuffer: func(b bool) { st.buffering.Set(b); updateBuffered(cx, st) },
 				OnError: func(err error) {
 					ClientLog("[player] video OnError: %v", err)
 					st.playErr.Set(err.Error())
@@ -436,12 +442,55 @@ func playIcon(st *playerState) func() *core.SVG {
 	}
 }
 
+// updateBuffered 推断「已缓冲到」位置并写 App.PlayBufferedSecs。
+//
+// nsgo 的 Video 只暴露布尔 OnBuffer，不透出 AVPlayer 的
+// loadedTimeRanges，这里用应用层推断近似：AVPlayer 的 HLS 前向缓冲
+// 窗口随网速自适应（实测好源约 30-45s，差源更短）。缓冲前沿取
+// 「播放位置 + 预取窗口」，窗口大小按该站源实测网速折算，并保底
+// 总时长的 5%（否则慢源/长片下缓冲段 <2% 宽度，肉眼不可见）；
+// 正在缓冲（OnBuffer=true）说明缓冲已耗尽，前沿回缩到播放位置附近。
+// seek 后 AVPlayer 重新缓冲，位置跳变本身会把前沿拉近，无需特殊处理。
+func updateBuffered(cx *core.Scope, st *playerState) {
+	a := st.app
+	dur := st.duration.Get().Seconds()
+	if dur <= 0 || a == nil {
+		return
+	}
+	pos := st.position.Get().Seconds()
+	var window float64
+	switch {
+	case st.buffering.Get():
+		window = 2 // 缓冲耗尽，前沿贴着播放头
+	case a.PlaySpeedKBps > 0:
+		w := 45 * float64(a.PlaySpeedKBps) / (float64(a.PlaySpeedKBps) + 512)
+		if w < 8 {
+			w = 8
+		}
+		window = w
+	default:
+		window = 30
+	}
+	if minWin := dur * 0.05; window < minWin {
+		window = minWin
+	}
+	edge := pos + window
+	if edge > dur {
+		edge = dur
+	}
+	if edge < pos {
+		edge = pos
+	}
+	a.PlayBufferedSecs.Set(int(edge))
+}
+
 // progressSlider 进度条（B 站形态）：拖动 seek，拖动中不跳变；热区
 // 比视觉轨道高（14pt）方便点中，悬停/拖动时指示条变粗、拖块放大。
 func progressSlider(cx *core.Scope, st *playerState) core.Node {
 	dragging := core.NewSignal(cx, false)
 	dragValue := core.NewSignal(cx, 0.0)
 	hover := core.NewSignal(cx, false)
+	a := st.app
 	const (
 		hitH   core.Points = 14 // 热区高度
 		barH   core.Points = 3  // 常态指示条粗细
@@ -451,66 +500,90 @@ func progressSlider(cx *core.Scope, st *playerState) core.Node {
 	)
 
 	return core.View{
-		Style:        core.Style{FlexGrow: 1, FlexShrink: 1, Height: core.Pt(hitH)},
+		Style:        core.Style{Position: core.Relative, FlexGrow: 1, FlexShrink: 1, Height: core.Pt(hitH)},
 		OnMouseEnter: func(core.MouseEvent) { hover.Set(true) },
 		OnMouseLeave: func(core.MouseEvent) { hover.Set(false) },
-		Children: []core.Node{base.Slider{
-			Value: func() base.SliderValue {
-				if dragging.Get() {
-					return base.SingleValue(dragValue.Get())
-				}
-				dur := st.duration.Get().Seconds()
-				if dur <= 0 {
-					return base.SingleValue(0)
-				}
-				return base.SingleValue(st.position.Get().Seconds() / dur * 100)
+		Children: []core.Node{
+			base.Slider{
+				Value: func() base.SliderValue {
+					if dragging.Get() {
+						return base.SingleValue(dragValue.Get())
+					}
+					dur := st.duration.Get().Seconds()
+					if dur <= 0 {
+						return base.SingleValue(0)
+					}
+					return base.SingleValue(st.position.Get().Seconds() / dur * 100)
+				},
+				Min:   func() float64 { return 0 },
+				Max:   func() float64 { return 100 },
+				Step:  func() float64 { return 0.01 },
+				Axis:  base.Horizontal,
+				Label: "播放进度",
+				Style: core.Style{FlexGrow: 1, Height: core.Pt(hitH)},
+				OnChange: func(v base.SliderValue) {
+					dragging.Set(true)
+					dragValue.Set(v.End)
+				},
+				OnChangeEnd: func(v base.SliderValue) {
+					dragging.Set(false)
+					dur := st.duration.Get()
+					if dur > 0 {
+						st.ref.Seek(time.Duration(v.End / 100 * float64(dur)))
+					}
+				},
+				TrackStyle: core.Style{Height: core.Pt(hitH)},
+				IndicatorStyleFunc: func() core.Style {
+					active := hover.Get() || dragging.Get()
+					h := barH
+					top := (hitH - barH) / 2
+					if active {
+						h = barHL
+						top = (hitH - barHL) / 2
+					}
+					return core.Style{Background: theme.AccentBili, Height: core.Pt(h), CornerRadius: 999,
+						Margin: core.Edges{Top: core.Points(top)}}
+				},
+				// 拖块：B 站蓝圆点白描边，悬停出现、拖动放大（平时缩为 0，
+				// 点轨道任意处仍可起拖）。
+				ThumbStyleFunc: func() core.Style {
+					stl := core.Style{Background: theme.AccentBili, CornerRadius: 999,
+						BorderColor: core.RGB(0xffffff), BorderWidth: 2, BorderStyle: core.BorderSolid}
+					size := core.Points(0)
+					switch {
+					case dragging.Get():
+						size = thumbL
+					case hover.Get():
+						size = thumbS
+					}
+					stl.Width = core.Pt(size)
+					stl.Height = core.Pt(size)
+					return stl
+				},
 			},
-			Min:   func() float64 { return 0 },
-			Max:   func() float64 { return 100 },
-			Step:  func() float64 { return 0.01 },
-			Axis:  base.Horizontal,
-			Label: "播放进度",
-			Style: core.Style{FlexGrow: 1, Height: core.Pt(hitH)},
-			OnChange: func(v base.SliderValue) {
-				dragging.Set(true)
-				dragValue.Set(v.End)
+			// 缓冲段：后声明后绘制，铺在滑块之上——浅蓝灰半透明，从播放
+			// 位置到推断的缓冲前沿（B 站的灰色缓冲段）。PointerEventsNone
+			// 让点击/拖动穿透到下面的滑块；高度取满热区，视觉更清晰。
+			core.View{
+				Style: core.Style{Position: core.Absolute, Top: core.Pt(0), Bottom: core.Pt(0), PointerEvents: core.PointerEventsNone},
+				StyleFunc: func() core.Style {
+					dur := st.duration.Get().Seconds()
+					stl := core.Style{CornerRadius: 999, Background: core.RGBA(0xffffff, 0.4), MaxWidth: core.Pct(100)}
+					if dur <= 0 {
+						stl.Width = core.Pt(0)
+						return stl
+					}
+					pos := st.position.Get().Seconds()
+					buf := float64(a.PlayBufferedSecs.Get())
+					if buf < pos {
+						buf = pos
+					}
+					stl.Left = core.Pct(float32(pos / dur * 100))
+					stl.Width = core.Pct(float32((buf - pos) / dur * 100))
+					return stl
+				},
 			},
-			OnChangeEnd: func(v base.SliderValue) {
-				dragging.Set(false)
-				dur := st.duration.Get()
-				if dur > 0 {
-					st.ref.Seek(time.Duration(v.End / 100 * float64(dur)))
-				}
-			},
-			TrackStyle: core.Style{Height: core.Pt(hitH)},
-			IndicatorStyleFunc: func() core.Style {
-				active := hover.Get() || dragging.Get()
-				h := barH
-				top := (hitH - barH) / 2
-				if active {
-					h = barHL
-					top = (hitH - barHL) / 2
-				}
-				return core.Style{Background: theme.AccentBili, Height: core.Pt(h), CornerRadius: 999,
-					Margin: core.Edges{Top: core.Points(top)}}
-			},
-			// 拖块：B 站蓝圆点白描边，悬停出现、拖动放大（平时缩为 0，
-			// 点轨道任意处仍可起拖）。
-			ThumbStyleFunc: func() core.Style {
-				stl := core.Style{Background: theme.AccentBili, CornerRadius: 999,
-					BorderColor: core.RGB(0xffffff), BorderWidth: 2, BorderStyle: core.BorderSolid}
-				size := core.Points(0)
-				switch {
-				case dragging.Get():
-					size = thumbL
-				case hover.Get():
-					size = thumbS
-				}
-				stl.Width = core.Pt(size)
-				stl.Height = core.Pt(size)
-				return stl
-			},
-		}},
+		},
 	}
 }
 
