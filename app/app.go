@@ -39,6 +39,9 @@ type App struct {
 	homeChild *core.Signal[int]
 	// PreferSourceSignal 影片数据源偏好（"douban"|"tmdb"），持久化在 Storage。
 	PreferSourceSignal *core.Signal[string]
+	// ThemePref 外观偏好（"" 跟随系统 | "light" | "dark"），持久化在
+	// Storage；顶栏主题切换按钮读写。
+	ThemePref *core.Signal[string]
 	// TestSetHomeItems 测试挂钩：Home 挂载时注册直接驱动网格数据的函数。
 	TestSetHomeItems func([]api.DoubanItem)
 
@@ -140,6 +143,7 @@ func SetupForTest(cx *core.Scope, base string) *App {
 		SearchKeyword:      core.NewSignal(cx, ""),
 		Embedded:           core.NewSignal(cx, false),
 		PreferSourceSignal: core.NewSignal(cx, "douban"),
+		ThemePref:          core.NewSignal(cx, ""),
 		DetailTitle:        core.NewSignal(cx, ""),
 		DetailCover:        core.NewSignal(cx, ""),
 		DetailURL:          core.NewSignal(cx, ""),
@@ -202,6 +206,16 @@ func Setup(cx *core.Scope) *App {
 	if v, ok := store.GetItem("prefer_source"); ok && v == "tmdb" {
 		a.PreferSourceSignal.Set("tmdb")
 	}
+	// 恢复外观偏好并应用（主题切换按钮写入）。
+	if v, ok := store.GetItem("theme_pref"); ok {
+		a.ThemePref.Set(v)
+		switch v {
+		case "light":
+			cx.SetAppearance(core.AppearanceLight)
+		case "dark":
+			cx.SetAppearance(core.AppearanceDark)
+		}
+	}
 	// 恢复海报网格列数（首帧初值）：网格挂载时宽度未知，用上次会话
 	// 的列数渲染，测到真实宽度后不再跳变（消除 4→5 闪变）。
 	if v, ok := store.GetItem("poster_cols"); ok {
@@ -214,6 +228,14 @@ func Setup(cx *core.Scope) *App {
 		core.Untracked(cx, func() bool {
 			store.SetItem("prefer_source", v)
 			ClientLog("[data] 数据源偏好 = %s", v)
+			return true
+		})
+	})
+	// 外观偏好持久化。
+	cx.Effect(func() {
+		v := a.ThemePref.Get()
+		core.Untracked(cx, func() bool {
+			store.SetItem("theme_pref", v)
 			return true
 		})
 	})

@@ -9,6 +9,13 @@ build:
   output: dist
   targets: [macos_arm64, android_arm64]
 
+# Android 明文流量：应用的图片/媒体全走内嵌后端 127.0.0.1 HTTP 代理，
+# 而 nsgo 的 APK manifest 不支持注入 usesCleartextTraffic（框架缺陷，
+# docs/nsgo-bugs.md #A1）——target_sdk 降到 27（Android 9 前）绕开
+# 系统的明文禁令。框架补上 cleartext 配置后恢复 34。
+android:
+  target_sdk: 27
+
 # GitHub Releases：install.sh 与自动更新从这里取（也是发布目标仓库）。
 release:
   github: ciwam/kanju-client

@@ -71,8 +71,89 @@ func Shell(cx *core.Scope, a *App) core.Node {
 				Children:  []core.Node{appTopBar(cx, a)},
 			},
 			shellPages(cx, a),
+			// 手机底部导航：首页/历史/收藏/我的（设置收进「我的」）。
+			// 桌面不渲染（顶栏入口已够）；全屏时隐藏（沉浸）。
+			core.Dynamic(func(*core.Scope) core.Node {
+				if !theme.IsAndroid() || desktop.FullScreen(cx) {
+					return core.View{}
+				}
+				return bottomNav(cx, a)
+			}),
 		},
 	}
+}
+
+// bottomNav 手机底部导航条：四个等宽入口（首页/历史/收藏/我的），
+// 当前项主色高亮。「我的」页签打开设置页（设置收在其中）。
+func bottomNav(cx *core.Scope, a *App) core.Node {
+	items := []struct {
+		id, label string
+		icon      func() *core.SVG
+		press     func()
+	}{
+		{"home", "首页", lucide.House, func() { a.GoHome() }},
+		{"history", "历史", lucide.Clock, func() { a.Tab.Set("home"); a.HomeView.Set("history") }},
+		{"favorites", "收藏", lucide.Heart, func() { a.Tab.Set("home"); a.HomeView.Set("favorites") }},
+		{"me", "我的", lucide.CircleUser, func() { a.Navigate("settings") }},
+	}
+	current := func(it struct {
+		id, label string
+		icon      func() *core.SVG
+		press     func()
+	}) bool {
+		switch it.id {
+		case "home":
+			return a.Tab.Get() == "home" && a.HomeView.Get() == ""
+		case "history":
+			return a.Tab.Get() == "home" && a.HomeView.Get() == "history"
+		case "favorites":
+			return a.Tab.Get() == "home" && a.HomeView.Get() == "favorites"
+		default:
+			return a.Tab.Get() == "settings"
+		}
+	}
+	row := core.View{
+		StyleFunc: func() core.Style {
+			p := cx.Palette()
+			return core.Style{
+				Direction: core.Row, AlignItems: core.AlignCenter, FlexShrink: 0,
+				Padding:     core.Symmetric(4, 8),
+				Background:  p.Surface,
+				Borders:     core.Edges{Top: 1},
+				BorderColors: core.EdgeColors{Top: p.Border},
+				BorderStyle: core.BorderSolid,
+			}
+		},
+	}
+	for _, it := range items {
+		it := it
+		row.Children = append(row.Children, core.View{
+			StyleFunc: func() core.Style {
+				p := cx.Palette()
+				st := core.Style{
+					FlexGrow: 1, FlexShrink: 1, AlignItems: core.AlignCenter, Gap: 2,
+					Padding: core.Symmetric(6, 4), CornerRadius: 10,
+				}
+				if current(it) {
+					st.Color = p.Accent
+				} else {
+					st.Color = p.TextMuted
+				}
+				return st
+			},
+			Children: []core.Node{
+				ui.Icon(it.icon, 20, func() core.Color {
+					if current(it) {
+						return cx.Palette().Accent
+					}
+					return cx.Palette().TextMuted
+				}),
+				core.Text{Content: it.label, Style: core.Style{FontSize: 11}},
+			},
+			OnPress: func(core.PressEvent) { it.press() },
+		})
+	}
+	return row
 }
 
 // appBarStyle 顶栏容器样式：白底卡片浮于浅灰页面之上。
@@ -89,9 +170,9 @@ func appBarStyle(cx *core.Scope) core.Style {
 	}
 }
 
-// appTopBar 全局顶栏（B 站桌面版）：左返回+logo、中全局搜索框、
-// 右历史/收藏/设置图标入口。搜索提交复用 OpenSearch 链路（面板
-// 自动发起搜索）；返回按钮条件显示（home 无面板时隐藏）。
+// appTopBar 全局顶栏：桌面 B 站形态（返回+logo、搜索框、历史/收藏/
+// 设置图标）；手机（Android）形态为 左小太阳 logo、中搜索框、右主题
+// 切换按钮（导航收进底部栏，见 bottomNav）。
 func appTopBar(cx *core.Scope, a *App) core.Node {
 	keyword := core.NewSignal(cx, "")
 	searchInput := ui.Input{
@@ -125,11 +206,40 @@ func appTopBar(cx *core.Scope, a *App) core.Node {
 	tb := desktop.TitleBar(cx)
 	lightPad := core.View{Style: core.Style{Width: core.Pt(max(core.Points(tb.Left)-8, 0))}}
 
-	// 手机：设置入口收进右栏三个图标里太挤时仍保留（截图中可用），
-	// 主要缩搜索区宽度让中段不挤压图标。
-	searchMax := core.Pt(480)
+	// logo：手机用小太阳图标，桌面保留 Kanju 标题（保底导航一致）。
+	logo := core.View{
+		StyleFunc: func() core.Style {
+			return core.Style{Hover: &core.Style{Opacity: core.Alpha(0.7)}, CornerRadius: 6, Padding: core.Symmetric(2, 6)}
+		},
+		Children: []core.Node{theme.Title("Kanju", 17, core.FontWeightSemibold)},
+		OnPress:  func(core.PressEvent) { a.GoHome() },
+	}
 	if theme.IsAndroid() {
-		searchMax = core.Pct(100)
+		logo = core.View{
+			StyleFunc: func() core.Style {
+				return core.Style{Padding: core.Symmetric(4, 6), Hover: &core.Style{Opacity: core.Alpha(0.7)}}
+			},
+			Children: []core.Node{ui.Icon(lucide.Sun, 22, func() core.Color { return cx.Palette().Accent })},
+			OnPress:  func(core.PressEvent) { a.GoHome() },
+		}
+	}
+
+	// 手机：导航收进底部栏，顶栏右侧只剩主题切换；桌面保持三图标。
+	if theme.IsAndroid() {
+		return theme.AppBar(cx,
+			// left：logo
+			[]core.Node{logo},
+			// center：全局搜索框
+			[]core.Node{
+				core.View{
+					Style:    core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, AlignItems: core.AlignCenter},
+					Desktop:  core.DesktopViewProps{WindowDrag: core.WindowDragOff},
+					Children: []core.Node{searchInput, searchBtn},
+				},
+			},
+			// right：主题切换（亮/暗）。
+			[]core.Node{themeToggleButton(cx, a)},
+		)
 	}
 
 	return theme.AppBar(cx,
@@ -137,19 +247,12 @@ func appTopBar(cx *core.Scope, a *App) core.Node {
 		[]core.Node{
 			lightPad,
 			backVisible,
-			// 保底导航：任何页面点 Kanju 标题回首页（影片推荐）。
-			core.View{
-				StyleFunc: func() core.Style {
-					return core.Style{Hover: &core.Style{Opacity: core.Alpha(0.7)}, CornerRadius: 6, Padding: core.Symmetric(2, 6)}
-				},
-				Children: []core.Node{theme.Title("Kanju", 17, core.FontWeightSemibold)},
-				OnPress:  func(core.PressEvent) { a.GoHome() },
-			},
+			logo,
 		},
 		// center：全局搜索框
 		[]core.Node{
 			core.View{
-				Style:    core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, AlignItems: core.AlignCenter, MaxWidth: searchMax},
+				Style:    core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, AlignItems: core.AlignCenter, MaxWidth: core.Pt(560)},
 				Desktop:  core.DesktopViewProps{WindowDrag: core.WindowDragOff},
 				Children: []core.Node{searchInput, searchBtn},
 			},
@@ -161,6 +264,33 @@ func appTopBar(cx *core.Scope, a *App) core.Node {
 			entry("设置", "appbar-settings", lucide.Settings, func() { a.Navigate("settings") }),
 		},
 	)
+}
+
+// themeToggleButton 亮/暗切换：图标随当前外观（亮显示月亮=切暗，
+// 暗显示太阳=切亮），偏好持久化到 Storage（App.ThemePref）。
+func themeToggleButton(cx *core.Scope, a *App) core.Node {
+	return core.Dynamic(func(*core.Scope) core.Node {
+		dark := cx.Env().Dark()
+		icon := lucide.Moon
+		if dark {
+			icon = lucide.Sun
+		}
+		return ui.Button{Variant: ui.ButtonGhost, Icon: icon, Label: "主题",
+			TestID: "appbar-theme",
+			OnPress: func() {
+				switch a.ThemePref.Get() {
+				case "dark":
+					cx.SetAppearance(core.AppearanceLight)
+					a.ThemePref.Set("light")
+				case "light":
+					cx.SetAppearance(core.AppearanceSystem)
+					a.ThemePref.Set("")
+				default: // 跟随系统 → 强制暗
+					cx.SetAppearance(core.AppearanceDark)
+					a.ThemePref.Set("dark")
+				}
+			}}
+	})
 }
 
 // shellPages 页签容器。
