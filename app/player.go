@@ -728,6 +728,19 @@ func episodeSidebar(cx *core.Scope, a *App) core.Node {
 				si = 0
 			}
 			ch := groups[si]
+			// 状态条（错误/解析中/聚合中）在集数列表前面——播放失败
+			// 时用户能直接看到报错，而不是"转一圈就没了"。
+			switch {
+			case a.DetailErr.Get() != "":
+				epList = append(epList, core.View{
+					Style:    core.Style{Padding: core.Symmetric(6, 10), CornerRadius: 6, Background: cx.Palette().SurfaceHover},
+					Children: []core.Node{ui.Text(a.DetailErr.Get(), 12, ui.Regular, func() core.Color { return cx.Palette().Danger })},
+				})
+			case a.DetailPlayBusy.Get() != "":
+				epList = append(epList, theme.Row(8, ui.Spinner{}, ui.Text(a.DetailPlayBusy.Get(), 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted })))
+			case a.DetailLoading.Get():
+				epList = append(epList, theme.Row(8, ui.Spinner{}, ui.Text("正在聚合站源…", 12, ui.Regular, func() core.Color { return cx.Palette().TextMuted })))
+			}
 			for _, ep := range ch.Episodes {
 				ep := ep
 				current := ep.URL != "" && ep.URL == nowPlaying
