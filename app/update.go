@@ -188,8 +188,8 @@ func tryDownload(client *http.Client, u, destPath string, onProgress func(pct in
 }
 
 // minDialogVisibleMs 弹窗最短保留时长（毫秒）：检查很快时弹窗不再
-// 一闪而过，结果文案在弹窗内停留到满时长再收起。
-const minDialogVisibleMs = 1200
+// 一闪而过，结果文案在弹窗内停留到满时长再收起（2.5s）。
+const minDialogVisibleMs = 2500
 
 // startUpdate 检查更新入口（设置页「检查更新」按钮）：
 // 查最新版 → 有新版 → 下载（进度弹窗）→ 调起安装器。
@@ -301,8 +301,9 @@ func (a *App) runUpdate(cx *core.Scope, u *updateState) {
 }
 
 // updateDialog 下载进度弹窗（u.active 时由 versionCard 渲染）。
-// Animation 用 ModalFade：默认的 ModalSlide 从底部滑入，检查在弹窗
-// 展开动画期间就跑完了，短暂新版弹窗一闪而过看不出过程。
+// 紧凑小卡片（贴设置页上方居中，不占满屏）；Animation 用 ModalNone：
+// 默认的 ModalSlide 从底部滑入，检查在展开动画期间就跑完了，短暂
+// 新版弹窗一闪而过看不出过程。
 func updateDialog(cx *core.Scope, u *updateState) core.Node {
 	return core.Modal{
 		NoCloseOnBackdropPress: true,
@@ -311,9 +312,9 @@ func updateDialog(cx *core.Scope, u *updateState) core.Node {
 		StyleFunc: func() core.Style {
 			p := cx.Palette()
 			return core.Style{
-				Position: core.Absolute, Left: core.Pct(15), Right: core.Pct(15),
-				Top: core.Pct(35), Padding: core.All(20), CornerRadius: 12,
-				Background: p.Surface, Gap: 12,
+				Position: core.Absolute, Left: core.Pct(25), Right: core.Pct(25),
+				Top: core.Pct(22), Padding: core.Symmetric(14, 16), CornerRadius: 12,
+				Background: p.Surface, Gap: 8,
 				AlignItems: core.AlignCenter,
 			}
 		},
@@ -325,7 +326,7 @@ func updateDialog(cx *core.Scope, u *updateState) core.Node {
 				if u.done {
 					return core.View{}
 				}
-				return core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
+				return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
 					progressTrack(cx, u),
 					pctText(cx, u),
 				}}
