@@ -54,7 +54,16 @@ func Shell(cx *core.Scope, a *App) core.Node {
 	return core.View{
 		TestID: "shell",
 		StyleFunc: func() core.Style {
-			return theme.Fill().Merge(core.Style{Overflow: core.Hidden})
+			st := theme.Fill().Merge(core.Style{Overflow: core.Hidden})
+			// 手机 edge-to-edge：内容铺到系统栏下，根容器消费安全区
+			// （状态栏 top + 三键导航栏 bottom + 刘海左右），否则系统
+			// UI 盖住顶栏与底部导航。SafeArea 是响应式 Edges，读取在
+			// StyleFunc（样式提交，不销毁子树）。
+			if theme.IsAndroid() {
+				sa := cx.Env().SafeArea()
+				st.Padding = core.Edges{Top: sa.Top, Bottom: sa.Bottom, Left: sa.Left, Right: sa.Right}
+			}
+			return st
 		},
 		Children: []core.Node{
 			// 全局顶栏常显（B 站桌面版样式，播放页也显示——返回保底）；
