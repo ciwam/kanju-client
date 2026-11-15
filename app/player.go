@@ -206,14 +206,14 @@ func Player(cx *core.Scope, a *App) core.Node {
 		},
 		Children: []core.Node{core.Dynamic(func(*core.Scope) core.Node {
 			title := a.PlayTitle.Get()
-			src := a.PlayURL.Get()
-			if src == "" {
-				return theme.Empty(cx, "从详情页选择一集开始播放")
-			}
-
+			// Video 常驻：src 用 SourceFunc 响应式更新而非 Dynamic 重建。
+			// 页签常驻显隐后（shellPages），本页 DisplayNone 期间
+			// renderEffect 挂起——若靠 Dynamic 重跑建 Video，Set PlayURL
+			// 不会触发，显示时永远没有 Video。SourceFunc 走 Video 自身
+			// 的 bind 通道，恢复可见时取到最新源。
 			video := core.Video{
 				Ref:        st.ref,
-				Source:     src,
+				SourceFunc: a.PlayURL.Get,
 				PausedFunc: st.paused.Get,
 				MutedFunc:  st.muted.Get,
 				VolumeFunc: func() float32 { return float32(st.volume.Get()) },

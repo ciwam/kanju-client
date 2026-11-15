@@ -199,11 +199,12 @@ func TestBackNavigation(t *testing.T) {
 	a.Post(func() { state.Tab.Set("settings") })
 	a.Settle()
 	a.Settle()
-	if len(a.Query("text:运行日志")) == 0 {
+	if len(a.QueryMounted("text:运行日志")) == 0 {
 		t.Fatalf("设置页未渲染。渲染树:\n%s", a.Dump())
 	}
-	// 返回按钮存在（backButton 的 TestID）。
-	if a.Find("id:back") == nil {
+	// 返回按钮存在（backButton 的 TestID）。页签常驻后设置页
+	// DisplayNone，用 QueryMounted 查。
+	if len(a.QueryMounted("id:back")) == 0 {
 		t.Fatal("设置页缺少返回按钮")
 	}
 	// back 后回 home：设置页内容消失（查询无匹配返回空切片）。
@@ -211,7 +212,7 @@ func TestBackNavigation(t *testing.T) {
 	a.Settle()
 	a.Settle()
 	if len(a.Query("text:运行日志")) != 0 {
-		t.Fatal("返回首页后设置页内容仍在")
+		t.Fatal("返回首页后设置页内容仍可见")
 	}
 }
 
@@ -262,5 +263,66 @@ func TestPlayFallbackSingleEpisode(t *testing.T) {
 	logs := strings.Join(app.Logs(), "\n")
 	if !strings.Contains(logs, "换源成功") {
 		t.Fatalf("日志应记录换源成功。日志:\n%s", logs)
+	}
+}
+
+// TestOpenPlayerMountsPlayer 回归：OpenPlayer 后 Shell 必须切到 player
+// 页签（曾因 Tab 变化被 detail 页的 render effect 抢先吞掉而不挂载）。
+func TestOpenPlayerMountsPlayer(t *testing.T) {
+	var state *app.App
+	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		state = app.SetupForTest(cx, "http://127.0.0.1:1")
+		state.Embedded.Set(true)
+		state.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
+		return app.Root(cx, state)
+	}, nsgotest.Size(1000, 700))
+	a.Settle()
+	a.Post(func() {
+		state.OpenPlayer("测试片 · 第01集", "http://127.0.0.1:1/v.m3u8", "https://ep.example/1", "测试源", "https://detail.example/1")
+	})
+	a.Settle()
+	a.Settle()
+	if state.Tab.Get() != "player" {
+		t.Fatalf("Tab 应为 player，实际 %q", state.Tab.Get())
+	}
+	if len(a.QueryMounted("id:video")) == 0 {
+		t.Fatalf("播放器未挂载 Video 节点。渲染树:\n%s", a.Dump())
+	}
+}
+
+// TestOpenPlayerDuringDetailActivity 实机闪退/不切页签的时序模拟：
+// detail 聚合/渲染进行中（busy 信号连发），换源成功后 cx.Post 里
+// OpenPlayer——Shell 的 Dynamic 必须跟上 tab=player。
+func TestOpenPlayerDuringDetailActivity(t *testing.T) {
+	var state *app.App
+	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		state = app.SetupForTest(cx, "http://127.0.0.1:1")
+		state.Embedded.Set(true)
+		state.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
+		return app.Root(cx, state)
+	}, nsgotest.Size(1000, 700))
+	a.Settle()
+	// 模拟 detail 活动：进 detail、改 busy（触发 detail Dynamic 重跑）。
+	a.Post(func() {
+		state.DetailURL.Set("https://detail.example/1")
+		state.DetailTitle.Set("测试片")
+		state.Tab.Set("detail")
+	})
+	a.Settle()
+	a.Post(func() { state.DetailPlayBusy.Set("解析播放地址…") })
+	a.Settle()
+	// 换源成功路径：cx.Post 里清 busy + OpenPlayer（与 detail.go 相同顺序）。
+	a.Post(func() {
+		state.DetailPlayBusy.Set("")
+		state.OpenPlayer("测试片 · 第01集", "http://127.0.0.1:1/v.m3u8", "https://ep.example/1", "测试源", "https://detail.example/1")
+	})
+	a.Settle()
+	a.Settle()
+	a.Settle()
+	if state.Tab.Get() != "player" {
+		t.Fatalf("Tab 应为 player，实际 %q", state.Tab.Get())
+	}
+	if len(a.QueryMounted("id:video")) == 0 {
+		t.Fatalf("播放器未挂载。渲染树:\n%s", a.Dump())
 	}
 }

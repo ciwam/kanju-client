@@ -133,6 +133,7 @@ func SetupForTest(cx *core.Scope, base string) *App {
 		DetailFav:          core.NewSignal(cx, false),
 		DetailNowPlaying:   core.NewSignal(cx, ""),
 		PlayTitle:          core.NewSignal(cx, ""),
+		PlayEpisodeURL:     core.NewSignal(cx, ""),
 		PlayURL:            core.NewSignal(cx, ""),
 		PlaySource:         core.NewSignal(cx, ""),
 		PlaySourceURL:      core.NewSignal(cx, ""),
