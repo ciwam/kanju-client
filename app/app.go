@@ -243,13 +243,16 @@ func (a *App) Navigate(id string) {
 	a.Tab.Set(id)
 }
 
-// Back 返回上一页签；没有来源时回首页。
+// Back 返回上一页签；没有来源时回首页。直接 Tab.Set 而不经
+// Navigate——返回不改写 prevTab，否则 detail→player→Back(detail)
+// →Back 时 prevTab 已被覆盖成 player，形成 detail↔player 乒乓。
 func (a *App) Back() {
 	back := a.prevTab
 	if back == "" || back == a.Tab.Get() {
 		back = "home"
 	}
-	a.Navigate(back)
+	ClientLog("[nav] 返回 %s -> %s", a.Tab.Get(), back)
+	a.Tab.Set(back)
 }
 
 // OpenSearch 进入首页的搜索面板并预填关键词。

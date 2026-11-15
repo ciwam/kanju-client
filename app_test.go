@@ -326,3 +326,37 @@ func TestOpenPlayerDuringDetailActivity(t *testing.T) {
 		t.Fatalf("播放器未挂载。渲染树:\n%s", a.Dump())
 	}
 }
+
+// TestBackNoPingPong 导航历史回归：home→detail→player 后，player 返回
+// 到 detail，detail 再返回应回 home（而非 prevTab 被 Navigate 覆盖成
+// player 后的乒乓循环）。
+func TestBackNoPingPong(t *testing.T) {
+	var state *app.App
+	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		state = app.SetupForTest(cx, "http://127.0.0.1:1")
+		state.Embedded.Set(true)
+		state.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
+		return app.Root(cx, state)
+	}, nsgotest.Size(1000, 700))
+	a.Settle()
+	a.Post(func() { state.OpenDetail("测试片", "", "https://detail.example/1") })
+	a.Settle()
+	if state.Tab.Get() != "detail" {
+		t.Fatalf("应进 detail，实际 %q", state.Tab.Get())
+	}
+	a.Post(func() { state.OpenPlayer("测试片 · 第01集", "http://127.0.0.1:1/v.m3u8", "https://ep.example/1", "源", "https://detail.example/1") })
+	a.Settle()
+	if state.Tab.Get() != "player" {
+		t.Fatalf("应进 player，实际 %q", state.Tab.Get())
+	}
+	a.Post(func() { state.Back() })
+	a.Settle()
+	if state.Tab.Get() != "detail" {
+		t.Fatalf("player 返回应到 detail，实际 %q", state.Tab.Get())
+	}
+	a.Post(func() { state.Back() })
+	a.Settle()
+	if state.Tab.Get() != "home" {
+		t.Fatalf("detail 返回应到 home，实际 %q（prevTab 被返回导航覆盖会乒乓回 player）", state.Tab.Get())
+	}
+}
