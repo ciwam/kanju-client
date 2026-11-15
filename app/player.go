@@ -221,10 +221,17 @@ func Player(cx *core.Scope, a *App) core.Node {
 				ResizeMode: core.Contain,
 				Controls:   false, // 自绘控制栏
 				Style:      core.Style{FlexGrow: 1, FlexShrink: 1, Width: core.Pct(100), Background: core.RGB(0x000000)},
-				OnLoad:     func(i core.VideoInfo) { st.duration.Set(i.Duration) },
+				OnLoad: func(i core.VideoInfo) {
+					ClientLog("[player] video OnLoad dur=%s（重建 Video 会再次触发）", fmtDuration(i.Duration))
+					st.duration.Set(i.Duration)
+				},
 				OnProgress: func(pos, dur time.Duration) { st.position.Set(pos); st.duration.Set(dur) },
 				OnBuffer:   func(b bool) { st.buffering.Set(b) },
-				OnError:    func(err error) { st.playErr.Set(err.Error()); autoRetry(err.Error()) },
+				OnError: func(err error) {
+					ClientLog("[player] video OnError: %v", err)
+					st.playErr.Set(err.Error())
+					autoRetry(err.Error())
+				},
 				TestID:     "video",
 				StyleFunc:  nil,
 				OnPress: func(ev core.PressEvent) {
@@ -249,19 +256,14 @@ func Player(cx *core.Scope, a *App) core.Node {
 				},
 			}
 
-			// 全屏时视频铺满：标题行隐藏、四周 padding 归零。用
-			// StyleFunc 响应式切换（desktop.FullScreen 是信号），节点
-			// 结构不变——若在这里按全屏与否返回两棵不同的树，Dynamic
-			// 重跑会销毁重建 Video（AVPlayer 重新开流，播放从头开始）。
-			full := desktop.FullScreen(cx)
-			containerStyle := core.Style{Gap: 6, FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(8, 12)}
-			if full {
-				containerStyle = core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
-			}
+			// 全屏适配：desktop.FullScreen 的读取只在 StyleFunc 里——
+			// Dynamic 重跑是整个子树销毁重建（mountDynamic: Dispose+
+			// clear+mount，无 diff-patch），若在这里读 FullScreen，每次
+			// 全屏切换都会重建 Video（AVPlayer 重新开流，从头播放）。
+			// StyleFunc 的重算只是样式提交，子树存活。
 			titleRow := core.View{
 				StyleFunc: func() core.Style {
-					// 全屏时标题行隐藏（DisplayNone 不销毁子树，
-					// 返回按钮状态保留）。
+					// 全屏时标题行隐藏（样式提交，子树保留）。
 					if desktop.FullScreen(cx) {
 						return core.Style{Display: core.DisplayNone}
 					}
@@ -274,7 +276,12 @@ func Player(cx *core.Scope, a *App) core.Node {
 			}
 
 			return core.View{
-				Style:    containerStyle,
+				StyleFunc: func() core.Style {
+					if desktop.FullScreen(cx) {
+						return core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
+					}
+					return core.Style{Gap: 6, FlexGrow: 1, FlexShrink: 1, Padding: core.Symmetric(8, 12)}
+				},
 				Children: []core.Node{titleRow, playerArea},
 			}
 		})},
