@@ -9,6 +9,7 @@ import (
 	"kanju/client/theme"
 
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -180,7 +181,9 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 		},
 		Children: []core.Node{
 			PlayerSurface(cx, a),
-			// 未播放时的封面覆盖层（PlayURL 空且有封面时显示）。
+			// 未播放时的封面覆盖层（PlayURL 空且有封面时显示）：
+			// 封面铺满 + 半透明黑遮罩 + 中央播放按钮（点击播第一个
+			// 站源的第一集，走 PlayEpisode 完整链路）。
 			core.Dynamic(func(*core.Scope) core.Node {
 				if a.PlayURL.Get() != "" {
 					return core.View{}
@@ -192,19 +195,57 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 				if cover == "" {
 					return core.View{}
 				}
+				// 遮罩上的播放按钮：聚合完成后才有站源可播。
+				var playBtn core.Node
+				if d := a.DetailData.Get(); d != nil && len(d.Channels) > 0 {
+					groups := mergeChannels(d.Channels)
+					first := groups[0]
+					var firstEp api.Episode
+					if len(first.Episodes) > 0 {
+						firstEp = first.Episodes[0]
+					}
+					if firstEp.URL != "" {
+						playBtn = core.View{
+							StyleFunc: func() core.Style {
+								p := cx.Palette()
+								return core.Style{
+									Width: core.Pt(72), Height: core.Pt(72), CornerRadius: 999,
+									AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+									Background:  p.Accent,
+									ShadowColor: core.RGBA(0x000000, 0.4), ShadowOffset: core.Point{Y: 4}, ShadowRadius: 12,
+									Hover: &core.Style{Background: p.AccentHover, Transform: core.Transform{Scale: 1.06}},
+								}
+							},
+							Children: []core.Node{ui.Icon(lucide.Play, 32, func() core.Color { return core.RGB(0xffffff) })},
+							OnPress: func(core.PressEvent) {
+								a.PlayEpisode(cx, firstEp, first)
+							},
+						}
+					}
+				}
+				overlayChildren := []core.Node{
+					// 封面铺满播放器区域（Cover 裁剪，不再用原始小尺寸）。
+					core.Image{
+						Source:     core.Src(a.API.ImageURL(cover, a.DetailTitle.Get())),
+						ResizeMode: core.Cover,
+						Label:      a.DetailTitle.Get(),
+						Style:      core.Style{Width: core.Pct(100), Height: core.Pct(100)},
+					},
+				}
+				if playBtn != nil {
+					// 遮罩层（半透明黑）叠在封面上，中央播放按钮再叠其上。
+					overlayChildren = append(overlayChildren, core.View{
+						Style: core.Style{Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Top: core.Pt(0), Bottom: core.Pt(0),
+							AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+							Background: core.RGBA(0x000000, 0.45)},
+						Children: []core.Node{playBtn},
+					})
+				}
 				return core.View{
 					Style: core.Style{Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Top: core.Pt(0), Bottom: core.Pt(0),
 						AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 						Background: core.RGB(0x111111)},
-					Children: []core.Node{
-						// 封面铺满播放器区域（Cover 裁剪，不再用原始小尺寸）。
-						core.Image{
-							Source:     core.Src(a.API.ImageURL(cover, a.DetailTitle.Get())),
-							ResizeMode: core.Cover,
-							Label:      a.DetailTitle.Get(),
-							Style:      core.Style{Width: core.Pct(100), Height: core.Pct(100)},
-						},
-					},
+					Children: overlayChildren,
 				}
 			}),
 		},
