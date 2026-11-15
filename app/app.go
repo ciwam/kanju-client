@@ -59,6 +59,9 @@ type App struct {
 	// DetailUpdating 影片信息后台刷新中（SWR：缓存先显示，刷新完自动
 	// 替换）——详情页头部显示旋转指示的依据。
 	DetailUpdating *core.Signal[bool]
+	// DetailLoadedURL 最近一次成功发起加载的影片 URL（防重判断：
+	// DetailURL 是"正在查看的影片"，两者不同时才需要加载）。
+	DetailLoadedURL string
 
 	// 播放器入参。PlayURL 是交给播放器的（代理改写后）地址；
 	// PlayEpisodeURL 是原始选集 URL，作为历史/续播的稳定匹配键。
@@ -357,3 +360,6 @@ func (a *App) HistoryCover() string {
 	}
 	return a.DetailCover.Get()
 }
+
+// DetailLoadedURLForTest 供外部测试检查已加载 URL。
+func (a *App) DetailLoadedURLForTest() string { return a.DetailLoadedURL }

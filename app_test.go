@@ -499,3 +499,33 @@ func TestPlayFallbackEpisodeFormatDiff(t *testing.T) {
 		t.Fatalf("应匹配金鹰第1集，实际尝试: %v", tried)
 	}
 }
+
+// TestSwitchDetailReloads 换影片回归：打开影片 A 后再打开 B，必须
+// 重新加载 B 的数据（防重逻辑误判同 URL 曾导致一直显示 A 的数据）。
+func TestSwitchDetailReloads(t *testing.T) {
+	var state *app.App
+	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		state = app.SetupForTest(cx, "http://127.0.0.1:1")
+		state.Embedded.Set(true)
+		state.User.Set(&api.User{ID: 0, Username: "本地", Role: "admin"})
+		return app.Root(cx, state)
+	}, nsgotest.Size(1000, 700))
+	a.Settle()
+	a.Post(func() { state.OpenDetail("影片A", "", "https://detail.example/a") })
+	a.Settle()
+	a.Post(func() { state.OpenDetail("影片B", "", "https://detail.example/b") })
+	a.Settle()
+	// LoadDetail 已发起（DetailLoading=true，URL 已更新）——关键是
+	// loadedURL 记录了 B 而非停留在 A。
+	if state.DetailLoadedURLForTest() != "https://detail.example/b" {
+		t.Fatalf("已加载 URL 应为 B，实际 %q", state.DetailLoadedURLForTest())
+	}
+	// 再触发 effect（模拟页签往返）不应把 loadedURL 拉回 A。
+	a.Post(func() { state.Back() })
+	a.Settle()
+	a.Post(func() { state.OpenDetail("影片B", "", "https://detail.example/b") })
+	a.Settle()
+	if state.DetailLoadedURLForTest() != "https://detail.example/b" {
+		t.Fatalf("往返后已加载 URL 应仍为 B，实际 %q", state.DetailLoadedURLForTest())
+	}
+}

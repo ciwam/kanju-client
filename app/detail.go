@@ -71,6 +71,7 @@ func (a *App) LoadDetail(cx *core.Scope, u, title, cover string) {
 		ClientLog("[detail] 跳过重复加载 %s", u)
 		return
 	}
+	a.DetailLoadedURL = u
 	a.DetailLoading.Set(true)
 	a.DetailErr.Set("")
 	a.DetailSubject.Set(nil)
@@ -154,8 +155,9 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 		}
 		// 同 URL 且数据已在（播放后返回详情等场景）不重新拉取——
 		// 重新 LoadDetail 会清空 DetailSubject/Data，页面闪动且重复
-		// 请求站源。
-		if d := a.DetailData.Get(); d != nil && a.DetailURL.Get() == u {
+		// 请求站源。注意比较的是已加载 URL 而非 DetailURL（后者在
+		// OpenDetail 时已更新为新影片，不能作为"已加载"依据）。
+		if a.DetailLoadedURL == u {
 			return
 		}
 		core.Untracked(cx, func() bool {
