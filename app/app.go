@@ -349,3 +349,11 @@ func (a *App) OpenPlayer(title, playURL, episodeURL, sourceName, sourceURL strin
 		a.Tab.Set("detail")
 	}
 }
+
+// HistoryCover 播放历史用的封面：详情聚合的封面优先，列表带来的兜底。
+func (a *App) HistoryCover() string {
+	if s := a.DetailSubject.Get(); s != nil && s.Cover != "" {
+		return s.Cover
+	}
+	return a.DetailCover.Get()
+}
