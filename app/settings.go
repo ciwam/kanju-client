@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strconv"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -148,19 +149,23 @@ func versionCard(cx *core.Scope) core.Node {
 					result.Set("检查失败：" + err.Error())
 					return
 				}
-				ClientLog("[update] 本地 %s 最新 %s (tag=%s)", app.Version, latest, tag)
-				// 发版固定 tag "latest"，版本号从 Release 名称取
-				// （"Kanju <version>"）；名称缺失时退回 tag 前缀比对
-				// （兼容时间戳 tag 的历史包）。
-				remote := strings.TrimPrefix(latest, "Kanju ")
-				upToDate := remote == app.Version ||
-					tag == "v"+app.Version || strings.HasPrefix(tag, "v"+app.Version+"-")
-				if !upToDate {
-					result.Set("发现新版本 " + remote + "，点击下方链接下载")
-					downloadURL.Set("https://github.com/" + releaseRepo + "/releases/latest")
-				} else {
+				ClientLog("[update] 本地 v%s build=%s 最新 name=%q tag=%s", app.Version, app.Build, latest, tag)
+				// 发版固定 tag "latest"、版本号不再变化，新旧以 build 号
+				// 判断：线上 Release 名称形如 "Kanju 0.1.0 (3)"，与本地
+				// core.App().Build 比对。名称解析不出 build 时退回字符串
+				// 不等即提示（保守方向，宁可误报不漏报）。
+				remoteBuild := releaseBuildOf(latest)
+				local, _ := strconv.Atoi(app.Build)
+				if remoteBuild > 0 && remoteBuild <= local {
 					result.Set("已是最新版本")
+					return
 				}
+				if remoteBuild > 0 {
+					result.Set(fmt.Sprintf("发现新版本（build %d > 本地 %s），点击下方链接下载", remoteBuild, app.Build))
+				} else {
+					result.Set("发现新版本，点击下方链接下载")
+				}
+				downloadURL.Set("https://github.com/" + releaseRepo + "/releases/latest")
 			})
 		}()
 	}
@@ -243,6 +248,21 @@ func openAccelerated(rawURL string, cx *core.Scope) {
 	// 全部节点失效：退回 GitHub 原链。
 	ClientLog("[update] 加速节点全部不可用，退回 GitHub 原链")
 	cx.Post(func() { cx.OpenURL(rawURL, nil) })
+}
+
+// releaseBuildOf 从 Release 名称解析 build 号（"Kanju 0.1.0 (3)" → 3）。
+// 无括号 build（旧版名称）返回 0。
+func releaseBuildOf(name string) int {
+	i := strings.LastIndex(name, "(")
+	j := strings.LastIndex(name, ")")
+	if i < 0 || j <= i {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(name[i+1 : j]))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // releaseRepo 发布仓库（release.github，发布脚本与检查更新共用）。
