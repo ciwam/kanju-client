@@ -2,7 +2,7 @@ name: Kanju
 id: me.kanju.client
 version: 0.1.0
 # 每次发版由 release.sh 自动 +1（检查更新比对本地与线上 build 号）。
-build_number: 29912519
+build_number: 29912524
 
 dev:
   target: native
@@ -15,8 +15,10 @@ build:
 # 而 nsgo 的 APK manifest 不支持注入 usesCleartextTraffic（框架缺陷，
 # docs/nsgo-bugs.md #A1）——target_sdk 降到 27（Android 9 前）绕开
 # 系统的明文禁令。框架补上 cleartext 配置后恢复 34。
+# REQUEST_INSTALL_PACKAGES：应用内检查更新后调起安装器安装新 APK。
 android:
   target_sdk: 27
+  permissions: [REQUEST_INSTALL_PACKAGES]
 
 # GitHub Releases：install.sh 与自动更新从这里取（也是发布目标仓库）。
 release:

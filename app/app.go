@@ -42,6 +42,9 @@ type App struct {
 	// ThemePref 外观偏好（"" 跟随系统 | "light" | "dark"），持久化在
 	// Storage；顶栏主题切换按钮读写。
 	ThemePref *core.Signal[string]
+	// UpdateErr 检查更新的一次性结果文案（成功提示/错误），设置页
+	// 版本卡片显示。
+	UpdateErr *core.Signal[string]
 	// TestSetHomeItems 测试挂钩：Home 挂载时注册直接驱动网格数据的函数。
 	TestSetHomeItems func([]api.DoubanItem)
 
@@ -144,6 +147,7 @@ func SetupForTest(cx *core.Scope, base string) *App {
 		Embedded:           core.NewSignal(cx, false),
 		PreferSourceSignal: core.NewSignal(cx, "douban"),
 		ThemePref:          core.NewSignal(cx, ""),
+		UpdateErr:          core.NewSignal(cx, ""),
 		DetailTitle:        core.NewSignal(cx, ""),
 		DetailCover:        core.NewSignal(cx, ""),
 		DetailURL:          core.NewSignal(cx, ""),

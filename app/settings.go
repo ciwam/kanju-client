@@ -1,8 +1,6 @@
 package app
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -117,91 +115,72 @@ func settingsGeneralPane(cx *core.Scope, a *App) core.Node {
 					ui.Button{Text: "退出登录", Variant: ui.ButtonSecondary, OnPress: func() { a.Logout(cx) }},
 				)
 			}),
-			versionCard(cx),
+			versionCard(cx, a),
 		},
 	}
 }
 
 // versionCard 版本与检查更新卡片：显示当前版本，点击检查 GitHub
-// Releases 最新版（tag 形如 v<version>-<时间戳>，比对 version 前缀
-// + 时间戳）。有新版给出下载链接——走加速节点（见 ghProxyNodes），
-// 打开前逐节点探测可用性，A 节点不行自动换 B 节点。
-func versionCard(cx *core.Scope) core.Node {
+// Releases 最新版（build 标识 = 发版时间戳）。Android：应用内下载
+// （进度弹窗）+ 调起系统安装器（见 update.go）；macOS：打开加速
+// 下载链接（InstallPackage 不适用桌面）。
+func versionCard(cx *core.Scope, a *App) core.Node {
 	app := core.App()
-	checking := core.NewSignal(cx, false)
-	result := core.NewSignal(cx, "") // 检查结果文案
-	downloadURL := core.NewSignal(cx, "")
+	u := newUpdateState(cx)
 
 	check := func() {
-		if checking.Get() {
+		a.UpdateErr.Set("")
+		if theme.IsAndroid() {
+			a.startUpdate(cx, u)
 			return
 		}
-		checking.Set(true)
-		result.Set("")
-		downloadURL.Set("")
+		// 桌面：查最新版，有新版打开加速下载页（macOS 的应用内安装
+		// 走 dmg，无 InstallPackage）。
+		u.active.Set(true)
+		u.phase.Set("正在检查更新…")
 		go func() {
-			latest, tag, err := fetchLatestRelease()
+			r, err := fetchLatestReleaseFull()
 			cx.Post(func() {
-				checking.Set(false)
+				u.active.Set(false)
 				if err != nil {
-					ClientLog("[update] 检查更新失败: %v", err)
-					result.Set("检查失败：" + err.Error())
+					a.UpdateErr.Set("检查失败：" + err.Error())
 					return
 				}
-				ClientLog("[update] 本地 v%s build=%s 最新 name=%q tag=%s", app.Version, app.Build, latest, tag)
-				// 发版固定 tag "latest"、版本号不再变化，新旧以构建时间戳
-				// 判断：release.sh 把发版时间戳（yyyyMMddHHmmss）写进
-				// nsgo.yaml 的 build_number（构建时注入 core.App().Build）
-				// 和 Release 名称 "Kanju 0.1.0 (ts)"。等宽时间戳字符串比
-				// 较等价于数值比较；本地未知（空/旧包）时保守提示更新。
-				remoteTS := releaseBuildOf(latest)
+				remoteTS := releaseBuildOf(r.Name)
 				if app.Build != "" && remoteTS != "" && app.Build >= remoteTS {
-					result.Set("已是最新版本")
+					a.UpdateErr.Set("已是最新版本")
 					return
 				}
-				if remoteTS != "" {
-					result.Set(fmt.Sprintf("发现新版本（%s > 本地 %s），点击下方链接下载", remoteTS, app.Build))
-				} else {
-					result.Set("发现新版本，点击下方链接下载")
-				}
-				downloadURL.Set("https://github.com/" + releaseRepo + "/releases/latest")
+				a.UpdateErr.Set("发现新版本，即将打开下载页")
+				cx.OpenURL("https://github.com/"+releaseRepo+"/releases/latest", nil)
 			})
 		}()
 	}
 
-	return theme.Card(cx,
-		theme.Title("版本", 14, ui.Semibold),
-		ui.Text("当前版本 v"+app.Version, 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
-		core.Dynamic(func(*core.Scope) core.Node {
-			row := []core.Node{ui.Button{
-				Text: "检查更新", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-				OnPress: check,
-			}}
-			if checking.Get() {
-				row = append(row, ui.Spinner{})
-			}
-			return theme.Row(8, row...)
-		}),
-		core.Dynamic(func(*core.Scope) core.Node {
-			m := result.Get()
-			if m == "" {
-				return core.View{}
-			}
-			return ui.Text(m, 12, ui.Regular, func() core.Color { return cx.Palette().Accent })
-		}),
-		core.Dynamic(func(*core.Scope) core.Node {
-			u := downloadURL.Get()
-			if u == "" {
-				return core.View{}
-			}
-			return ui.Button{Text: "前往下载", Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
-				OnPress: func() {
-					// 加速下载：探测加速节点（直链经前缀代理），第一个
-					// 能取到数据的节点打开；全挂则退回 GitHub 原链。
-					go openAccelerated(u, cx)
-				}}
-		}),
-	)
+	return core.View{
+		Style: core.Style{Gap: 14},
+		Children: []core.Node{
+			theme.Card(cx,
+				theme.Title("版本", 14, ui.Semibold),
+				ui.Text("当前版本 v"+app.Version, 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
+				ui.Button{Text: "检查更新", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: check},
+				core.Dynamic(func(*core.Scope) core.Node {
+					m := a.UpdateErr.Get()
+					if m == "" {
+						return core.View{}
+					}
+					return ui.Text(m, 12, ui.Regular, func() core.Color { return cx.Palette().Accent })
+				}),
+			),
+			// Android 更新进度弹窗（u.active 时显示）。
+			core.Dynamic(func(*core.Scope) core.Node {
+				if !u.active.Get() {
+					return core.View{}
+				}
+				return updateDialog(cx, u)
+			}),
+		},
+	}
 }
 
 // ghProxyNodes GitHub 下载加速节点（前缀式代理：节点/完整 GitHub 链接）。
@@ -262,49 +241,6 @@ func releaseBuildOf(name string) string {
 
 // releaseRepo 发布仓库（release.github，发布脚本与检查更新共用）。
 const releaseRepo = "ciwam/kanju-client"
-
-// fetchLatestRelease 查 GitHub Releases 最新版的 tag 与名称。国内直连
-// api.github.com 常超时，走加速节点链（ghProxyNodes），A 节点失败换
-// B 节点，全部失效退回直连。未认证限额 60 次/小时，检查更新频率足够。
-func fetchLatestRelease() (name, tag string, err error) {
-	client := &http.Client{Timeout: 10 * time.Second}
-	apiURL := "https://api.github.com/repos/" + releaseRepo + "/releases/latest"
-	try := func(u string) (string, string, error) {
-		req, err := http.NewRequest(http.MethodGet, u, nil)
-		if err != nil {
-			return "", "", err
-		}
-		req.Header.Set("Accept", "application/vnd.github+json")
-		resp, err := client.Do(req)
-		if err != nil {
-			return "", "", err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return "", "", fmt.Errorf("GitHub 返回 %d", resp.StatusCode)
-		}
-		var r struct {
-			TagName string `json:"tag_name"`
-			Name    string `json:"name"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-			return "", "", err
-		}
-		return r.Name, r.TagName, nil
-	}
-	for _, node := range ghProxyNodes {
-		if n, t, err := try(node + "/" + apiURL); err == nil {
-			ClientLog("[update] 检查更新经加速节点 %s", node)
-			return n, t, nil
-		}
-	}
-	n, t, err := try(apiURL)
-	if err != nil {
-		return "", "", err
-	}
-	ClientLog("[update] 检查更新直连 GitHub（加速节点均不可用）")
-	return n, t, nil
-}
 
 // settingsSourcesPane 站源管理页签（仅管理员可见内容）。
 func settingsSourcesPane(cx *core.Scope, a *App) core.Node {
