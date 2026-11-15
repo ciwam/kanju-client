@@ -9,8 +9,75 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Settings 设置页：服务器地址、账号信息、运行日志。
+// settingsTabs 设置页子页签。
+type settingsTab struct {
+	id   string
+	text string
+}
+
+var settingsTabs = []settingsTab{
+	{"general", "常规"},
+	{"sources", "站源管理"},
+	{"logs", "运行日志"},
+}
+
+// Settings 设置页：子页签分区（常规 / 站源管理 / 运行日志）——设置项
+// 多起来后平铺一页太长，B 站设置页形态是左侧/顶部 tab 分区。
 func Settings(cx *core.Scope, a *App) core.Node {
+	tab := core.NewSignal(cx, "general")
+
+	return core.View{
+		StyleFunc: func() core.Style {
+			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 14, Overflow: core.Hidden})
+		},
+		Children: []core.Node{
+			theme.Title("设置", 20, ui.Semibold),
+			settingsTabBar(cx, tab),
+			core.Scroll{
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1},
+				Children: []core.Node{core.Dynamic(func(*core.Scope) core.Node {
+					switch tab.Get() {
+					case "sources":
+						return settingsSourcesPane(cx, a)
+					case "logs":
+						return settingsLogsPane(cx)
+					default:
+						return settingsGeneralPane(cx, a)
+					}
+				})},
+			},
+		},
+	}
+}
+
+// settingsTabBar 子页签行：B 站胶囊 tab（选中主色实底白字，未选灰底）。
+func settingsTabBar(cx *core.Scope, tab *core.Signal[string]) core.Node {
+	row := core.View{Style: core.Style{Direction: core.Row, Gap: 8, FlexShrink: 0}}
+	for _, t := range settingsTabs {
+		t := t
+		row.Children = append(row.Children, core.View{
+			StyleFunc: func() core.Style {
+				p := cx.Palette()
+				st := core.Style{
+					Padding: core.Symmetric(6, 16), CornerRadius: 999, FontSize: 13,
+					Background: p.Surface, Color: p.Text,
+					Hover: &core.Style{Background: p.SurfaceHover},
+				}
+				if tab.Get() == t.id {
+					st.Background = p.Accent
+					st.Color = p.AccentText
+				}
+				return st
+			},
+			Children: []core.Node{core.Text{Content: t.text}},
+			OnPress:  func(core.PressEvent) { tab.Set(t.id) },
+		})
+	}
+	return row
+}
+
+// settingsGeneralPane 常规页签：服务器地址（外部模式）与账号。
+func settingsGeneralPane(cx *core.Scope, a *App) core.Node {
 	draft := core.NewSignal(cx, a.Server.Get())
 	msg := core.NewSignal(cx, "")
 
@@ -25,10 +92,9 @@ func Settings(cx *core.Scope, a *App) core.Node {
 
 	return core.View{
 		StyleFunc: func() core.Style {
-			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 14, Overflow: core.Hidden})
+			return core.Style{FlexGrow: 1, FlexShrink: 1, Gap: 14}
 		},
 		Children: []core.Node{
-			theme.Title("设置", 20, ui.Semibold),
 			// 服务器卡片：内嵌模式下没有意义（地址是自动分配的本地端口），隐藏。
 			core.Dynamic(func(*core.Scope) core.Node {
 				if a.Embedded.Get() {
@@ -47,17 +113,27 @@ func Settings(cx *core.Scope, a *App) core.Node {
 					ui.Button{Text: "退出登录", Variant: ui.ButtonSecondary, OnPress: func() { a.Logout(cx) }},
 				)
 			}),
-			// 站源管理（仅管理员）。
-			core.Dynamic(func(*core.Scope) core.Node {
-				u := a.User.Get()
-				if u == nil || u.Role != "admin" {
-					return core.View{}
-				}
-				return SourcesCard(cx, a)
-			}),
-			LogCard(cx),
 		},
 	}
+}
+
+// settingsSourcesPane 站源管理页签（仅管理员可见内容）。
+func settingsSourcesPane(cx *core.Scope, a *App) core.Node {
+	return core.Dynamic(func(*core.Scope) core.Node {
+		u := a.User.Get()
+		if u == nil || u.Role != "admin" {
+			return theme.Card(cx,
+				theme.Title("站源管理", 14, ui.Semibold),
+				ui.Text("仅管理员可管理站源", 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
+			)
+		}
+		return SourcesCard(cx, a)
+	})
+}
+
+// settingsLogsPane 运行日志页签。
+func settingsLogsPane(cx *core.Scope) core.Node {
+	return LogCard(cx)
 }
 
 // serverCard 外部服务器地址卡片（内嵌模式不显示）。
