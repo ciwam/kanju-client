@@ -1,7 +1,11 @@
 package app
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"kanju/client/theme"
 
@@ -28,7 +32,7 @@ func Settings(cx *core.Scope, a *App) core.Node {
 
 	return core.View{
 		StyleFunc: func() core.Style {
-			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 14, Overflow: core.Hidden})
+			return theme.Fill().Merge(core.Style{Padding: theme.PagePadding(16), Gap: 14, Overflow: core.Hidden})
 		},
 		Children: []core.Node{
 			theme.Title("设置", 20, ui.Semibold),
@@ -113,8 +117,104 @@ func settingsGeneralPane(cx *core.Scope, a *App) core.Node {
 					ui.Button{Text: "退出登录", Variant: ui.ButtonSecondary, OnPress: func() { a.Logout(cx) }},
 				)
 			}),
+			versionCard(cx),
 		},
 	}
+}
+
+// versionCard 版本与检查更新卡片：显示当前版本，点击检查 GitHub
+// Releases 最新版（tag 形如 v<version>-<时间戳>，比对 version 前缀
+// + 时间戳）。有新版给出下载链接（打开浏览器）。
+func versionCard(cx *core.Scope) core.Node {
+	app := core.App()
+	checking := core.NewSignal(cx, false)
+	result := core.NewSignal(cx, "") // 检查结果文案
+	downloadURL := core.NewSignal(cx, "")
+
+	check := func() {
+		if checking.Get() {
+			return
+		}
+		checking.Set(true)
+		result.Set("")
+		downloadURL.Set("")
+		go func() {
+			latest, tag, err := fetchLatestRelease()
+			cx.Post(func() {
+				checking.Set(false)
+				if err != nil {
+					ClientLog("[update] 检查更新失败: %v", err)
+					result.Set("检查失败：" + err.Error())
+					return
+				}
+				ClientLog("[update] 本地 %s 最新 %s (%s)", app.Version, tag, latest)
+				if tag != "v"+app.Version && !strings.HasPrefix(tag, "v"+app.Version+"-") {
+					result.Set("发现新版本 " + tag + "，点击下方链接下载")
+					downloadURL.Set("https://github.com/" + releaseRepo + "/releases/latest")
+				} else {
+					result.Set("已是最新版本")
+				}
+			})
+		}()
+	}
+
+	return theme.Card(cx,
+		theme.Title("版本", 14, ui.Semibold),
+		ui.Text("当前版本 v"+app.Version, 13, ui.Regular, func() core.Color { return cx.Palette().TextMuted }),
+		core.Dynamic(func(*core.Scope) core.Node {
+			row := []core.Node{ui.Button{
+				Text: "检查更新", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+				OnPress: check,
+			}}
+			if checking.Get() {
+				row = append(row, ui.Spinner{})
+			}
+			return theme.Row(8, row...)
+		}),
+		core.Dynamic(func(*core.Scope) core.Node {
+			m := result.Get()
+			if m == "" {
+				return core.View{}
+			}
+			return ui.Text(m, 12, ui.Regular, func() core.Color { return cx.Palette().Accent })
+		}),
+		core.Dynamic(func(*core.Scope) core.Node {
+			u := downloadURL.Get()
+			if u == "" {
+				return core.View{}
+			}
+			return ui.Button{Text: "前往下载", Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+				OnPress: func() { cx.OpenURL(u, nil) }}
+		}),
+	)
+}
+
+// releaseRepo 发布仓库（release.github，发布脚本与检查更新共用）。
+const releaseRepo = "ciwam/kanju-client"
+
+// fetchLatestRelease 查 GitHub Releases 最新版的 tag 与名称。
+// 未认证请求限额 60 次/小时，检查更新频率足够。
+func fetchLatestRelease() (name, tag string, err error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, _ := http.NewRequest(http.MethodGet,
+		"https://api.github.com/repos/"+releaseRepo+"/releases/latest", nil)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("GitHub 返回 %d", resp.StatusCode)
+	}
+	var r struct {
+		TagName string `json:"tag_name"`
+		Name    string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return "", "", err
+	}
+	return r.Name, r.TagName, nil
 }
 
 // settingsSourcesPane 站源管理页签（仅管理员可见内容）。

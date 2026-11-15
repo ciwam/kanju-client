@@ -9,7 +9,7 @@
 #   ./release.sh 0.2.0 upload   # 指定版本号上传（默认取 nsgo.yaml 的 version）
 #
 # 上传规则:
-#   - tag 形如 v<version>-<8位uuid>，每次发布都是新 Release（不覆盖历史，
+#   - tag 形如 v<version>-<时间戳>（yyyyMMddHHmmss），每次发布都是新 Release（不覆盖历史，
 #     测试阶段频繁发包可随时回退任意版本）
 #   - install.sh / install.ps1 不上传
 #
@@ -48,10 +48,10 @@ if [ -z "${VERSION:-}" ]; then
     VERSION=$(sed -n 's/^version: *//p' nsgo.yaml | head -1)
 fi
 [ -z "$VERSION" ] && { echo "✗ 未指定版本且 nsgo.yaml 无 version"; exit 1; }
-# tag 追加 8 位随机 uuid（测试阶段频繁发包，同版本号每次发都是新的
-# Release，不覆盖历史；uuid 短到肉眼可辨）。
-UUID=$(python3 -c "import uuid; print(uuid.uuid4().hex[:8])")
-TAG="v${VERSION}-${UUID}"
+# tag 追加发版时间戳（yyyyMMddHHmmss，本地时间）：测试阶段频繁发包，
+# 同版本号每次发都是新 Release，不覆盖历史；时间戳可读出发布时刻。
+STAMP=$(date +%Y%m%d%H%M%S)
+TAG="v${VERSION}-${STAMP}"
 
 build_pkgs() {
     echo "==> 清理构建缓存（go 编译/测试缓存 + dist 旧产物）"
@@ -113,15 +113,15 @@ upload_pkgs() {
 
     api() { curl -sf -H "$AUTH" -H "Accept: application/vnd.github+json" "$@"; }
 
-    # Release 是否已存在（正常不会，tag 含 uuid；防御性保留）。
+    # Release 是否已存在（正常不会，tag 含时间戳；防御性保留）。
     if api "https://api.github.com/repos/$REPO/releases/tags/$TAG" > /dev/null 2>&1; then
         echo "==> Release $TAG 已存在，追加资产"
         RELEASE_ID=$(api "https://api.github.com/repos/$REPO/releases/tags/$TAG" | sed -n 's/.*"id": \([0-9]*\),.*/\1/p' | head -1)
     else
         echo "==> 创建 Release $TAG"
-        BODY=$(jq -n --arg tag "$TAG" --arg name "Kanju $VERSION ($UUID)" \
+        BODY=$(jq -n --arg tag "$TAG" --arg name "Kanju $VERSION ($STAMP)" \
             '{tag_name: $tag, name: $name, body: "Kanju 客户端构建"}' 2>/dev/null \
-            || printf '{"tag_name":"%s","name":"Kanju %s (%s)","body":"Kanju 客户端构建"}' "$TAG" "$VERSION" "$UUID")
+            || printf '{"tag_name":"%s","name":"Kanju %s (%s)","body":"Kanju 客户端构建"}' "$TAG" "$VERSION" "$STAMP")
         RELEASE_ID=$(api -X POST -d "$BODY" "https://api.github.com/repos/$REPO/releases" | sed -n 's/.*"id": \([0-9]*\),.*/\1/p' | head -1)
     fi
     [ -n "$RELEASE_ID" ] || { echo "✗ 创建/查询 Release 失败"; exit 1; }
@@ -129,7 +129,7 @@ upload_pkgs() {
     UPLOAD_URL="https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets?name="
     for f in "${FILES[@]}"; do
         name=$(basename "$f")
-        # 删同名旧资产（防御，tag 含 uuid 时正常不存在）。
+        # 删同名旧资产（防御，tag 含时间戳 时正常不存在）。
         for id in $(api "https://api.github.com/repos/$REPO/releases/$RELEASE_ID/assets" 2>/dev/null \
             | python3 -c "import json,sys;[print(a['id']) for a in json.load(sys.stdin) if a['name']=='$name']" 2>/dev/null); do
             api -X DELETE "https://api.github.com/repos/$REPO/releases/assets/$id" >/dev/null

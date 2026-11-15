@@ -2,6 +2,7 @@
 package theme
 
 import (
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -43,6 +44,22 @@ func Card(cx *core.Scope, children ...core.Node) core.View {
 // Fill 填满容器。
 func Fill() core.Style {
 	return core.Style{FlexGrow: 1, FlexShrink: 1, Width: core.Pct(100), Height: core.Pct(100)}
+}
+
+// isAndroid Android 构建（GOOS=android）。
+var isAndroid = runtime.GOOS == "android"
+
+// IsAndroid 当前是否 Android 构建（手机布局适配用）。
+func IsAndroid() bool { return isAndroid }
+
+// PagePadding 页面级左右留白：桌面 20pt；手机（Android）12pt——360dp
+// 宽的屏幕上 20pt 两侧占掉 40dp，内容太挤。
+func PagePadding(vertical core.Points) core.Edges {
+	h := core.Points(20)
+	if isAndroid {
+		h = 12
+	}
+	return core.Symmetric(vertical, h)
 }
 
 // Poster 封面图（URL 应已由调用方包装为代理地址）。

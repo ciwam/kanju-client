@@ -39,7 +39,7 @@ func AppBar(cx *core.Scope, left, center, right []core.Node) core.View {
 		StyleFunc: func() core.Style {
 			return core.Style{
 				Direction: core.Row, AlignItems: core.AlignCenter, Gap: 16,
-				Padding:     core.Symmetric(10, 20),
+				Padding:     PagePadding(10),
 				Background:  p.Surface,
 				Borders:     core.Edges{Bottom: 1},
 				BorderColors: core.EdgeColors{Bottom: p.Border},

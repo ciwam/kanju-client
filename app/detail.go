@@ -173,7 +173,7 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 			if desktop.FullScreen(cx) {
 				return theme.Fill().Merge(core.Style{Overflow: core.Hidden})
 			}
-			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 12, Overflow: core.Hidden})
+			return theme.Fill().Merge(core.Style{Padding: theme.PagePadding(16), Gap: 12, Overflow: core.Hidden})
 		},
 		Children: []core.Node{episodeWatchPage(cx, a)},
 	}

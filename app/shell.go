@@ -80,7 +80,7 @@ func appBarStyle(cx *core.Scope) core.Style {
 	p := cx.Palette()
 	return core.Style{
 		Direction: core.Row, AlignItems: core.AlignCenter, Gap: 16,
-		Padding:     core.Symmetric(10, 20),
+		Padding:     theme.PagePadding(10),
 		Background:  p.Surface,
 		Borders:     core.Edges{Bottom: 1},
 		BorderColors: core.EdgeColors{Bottom: p.Border},
@@ -121,9 +121,16 @@ func appTopBar(cx *core.Scope, a *App) core.Node {
 	}
 
 	// 红绿灯避让：隐藏标题栏后 TitleBar().Left 是系统控件占宽，
-	// 返回按钮前插一个占宽垫片。
+	// 返回按钮前插一个占宽垫片（Android 无红绿灯，垫片为 0）。
 	tb := desktop.TitleBar(cx)
 	lightPad := core.View{Style: core.Style{Width: core.Pt(max(core.Points(tb.Left)-8, 0))}}
+
+	// 手机：设置入口收进右栏三个图标里太挤时仍保留（截图中可用），
+	// 主要缩搜索区宽度让中段不挤压图标。
+	searchMax := core.Pt(480)
+	if theme.IsAndroid() {
+		searchMax = core.Pct(100)
+	}
 
 	return theme.AppBar(cx,
 		// left：红绿灯垫片 + 返回 + 标题
@@ -142,7 +149,7 @@ func appTopBar(cx *core.Scope, a *App) core.Node {
 		// center：全局搜索框
 		[]core.Node{
 			core.View{
-				Style:    core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, AlignItems: core.AlignCenter, MaxWidth: core.Pt(560)},
+				Style:    core.Style{Direction: core.Row, Gap: 8, FlexGrow: 1, AlignItems: core.AlignCenter, MaxWidth: searchMax},
 				Desktop:  core.DesktopViewProps{WindowDrag: core.WindowDragOff},
 				Children: []core.Node{searchInput, searchBtn},
 			},

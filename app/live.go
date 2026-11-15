@@ -58,7 +58,7 @@ func Live(cx *core.Scope, a *App) core.Node {
 
 	return core.View{
 		StyleFunc: func() core.Style {
-			return theme.Fill().Merge(core.Style{Padding: core.Symmetric(16, 20), Gap: 12, Overflow: core.Hidden})
+			return theme.Fill().Merge(core.Style{Padding: theme.PagePadding(16), Gap: 12, Overflow: core.Hidden})
 		},
 		Children: []core.Node{
 			core.Dynamic(func(*core.Scope) core.Node {

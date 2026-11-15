@@ -78,7 +78,7 @@ func searchPanel(cx *core.Scope, a *App) core.Node {
 		StyleFunc: func() core.Style {
 			// 页面级边距：与 home 一致（20/16），内容不再贴边。
 			return core.Style{Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden,
-				Padding: core.Symmetric(16, 20)}
+				Padding: theme.PagePadding(16)}
 		},
 		Children: []core.Node{
 			// 搜索框在全局顶栏（appTopBar），面板只留状态与结果；
