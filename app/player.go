@@ -31,8 +31,12 @@ type playerState struct {
 	hideGen    *core.Signal[int]  // 隐藏定时代次，新显示使旧定时失效
 	// lastSavedSec 上次写进度的秒数（OnProgress 一秒多次，去重用）。
 	lastSavedSec int64
-	app          *App
-	ref          *core.Ref
+	// panSeeking/panBase Android 全屏滑动快进状态：手势期间的基准
+	// 位置（PanEvent.Translation 相对手势起点）。
+	panSeeking bool
+	panBase    time.Duration
+	app        *App
+	ref        *core.Ref
 }
 
 func newPlayerState(a *App, cx *core.Scope, volume float64, rate float32) *playerState {
@@ -256,6 +260,22 @@ func PlayerSurface(cx *core.Scope, a *App) core.Node {
 				TestID:    "video",
 				StyleFunc: nil,
 				OnPress: func(ev core.PressEvent) {
+					// Android（含全屏）：单击 = 显示/隐藏控制栏，
+					// 双击 = 播放/暂停；桌面保持原行为（单击显示栏并
+					// 切暂停，双击全屏）。
+					if theme.IsAndroid() {
+						if ev.Clicks >= 2 {
+							st.paused.Update(func(p bool) bool { return !p })
+							return
+						}
+						if st.barVisible.Get() {
+							st.barVisible.Set(false)
+							st.hideGen.Set(st.hideGen.Get() + 1) // 使自动隐藏定时失效
+						} else {
+							st.showBar(cx)
+						}
+						return
+					}
 					st.showBar(cx)
 					if ev.Clicks >= 2 {
 						a.toggleVideoFull(cx)
@@ -266,10 +286,47 @@ func PlayerSurface(cx *core.Scope, a *App) core.Node {
 			}
 
 			// 播放器区域 = 视频 + 覆盖其上的底部控制栏 + 状态角标。
+			// pan 手势挂这层（Video 不支持 OnPan）：Android 全屏时
+			// 左右滑 = 快退/快进——以手势起点位置为基准，每滑一屏宽
+			// ≈ 1/3 时长；拖动中实时预览位置，松手 seek。水平激活
+			// 阈值 10pt、垂直分量超 10pt 交还（不抢下滑返回）。
 			playerArea := core.View{
 				StyleFunc: func() core.Style {
 					return core.Style{FlexGrow: 1, FlexShrink: 1, Width: core.Pct(100), Overflow: core.Hidden}
 				},
+				OnPan: func(ev core.PanEvent) {
+					if !theme.IsAndroid() || !a.VideoFull.Get() {
+						return
+					}
+					w := cx.Env().Window().Width
+					switch ev.Phase {
+					case core.GestureBegan:
+						st.panBase = st.position.Get()
+						st.panSeeking = true
+					case core.GestureChanged:
+						if !st.panSeeking {
+							return
+						}
+						dur := st.duration.Get()
+						if dur <= 0 {
+							return
+						}
+						delta := time.Duration(float64(ev.Translation.X) / float64(w) * 0.33 * float64(dur))
+						next := maxDur(st.panBase+delta, 0)
+						if d := st.duration.Get(); next > d {
+							next = d
+						}
+						st.position.Set(next) // 实时预览
+					case core.GestureEnded, core.GestureCancelled:
+						if !st.panSeeking {
+							return
+						}
+						st.panSeeking = false
+						st.ref.Seek(st.position.Get())
+						st.showBar(cx)
+					}
+				},
+				PanActivation: core.PanActivation{ActiveOffsetX: 10, FailOffsetY: 10},
 				Children: []core.Node{
 					video,
 					badge(cx, st),
