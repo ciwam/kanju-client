@@ -224,6 +224,15 @@ func PlayerSurface(cx *core.Scope, a *App) core.Node {
 		st.showBar(cx)
 	})
 	cx.OnKey("f", func() { a.toggleVideoFull(cx) })
+	// Android 返回键：全屏时先退出全屏（回到详情页），不交给系统；
+	// 非全屏时不处理（返回 = 正常导航回上一页：历史/收藏/首页）。
+	cx.OnBackPress(func() bool {
+		if a.VideoFull.Get() {
+			a.toggleVideoFull(cx)
+			return true
+		}
+		return false
+	})
 
 	return core.View{
 		StyleFunc: func() core.Style {
