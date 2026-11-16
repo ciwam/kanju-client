@@ -54,6 +54,24 @@ func Shell(cx *core.Scope, a *App) core.Node {
 	return core.View{
 		TestID: "shell",
 		StyleFunc: func() core.Style {
+			// Android 播放器应用内全屏：伪横屏——内容旋转 90°（宽高
+			// 互换铺满竖屏），视频横向画面占满整屏。框架无横屏 API
+			//（Activity.setRequestedOrientation 不可达），这是应用层
+			// 唯一可行解。旋转中心为屏幕中心：先平移 -50%,-50% 再转
+			// 再回移，用 Transform 组合（Translate 百分比相对自身）。
+			if theme.IsAndroid() && a.VideoFull.Get() {
+				w := cx.Env().Window()
+				// 元素宽=屏高、高=屏宽，中心与屏幕中心重合（Left/Top
+				// 各偏移宽高差之半），绕中心 Rotate 90° 后正好铺满。
+				return core.Style{
+					Position: core.Absolute,
+					Left:     core.Pt((w.Width - w.Height) / 2),
+					Top:      core.Pt((w.Height - w.Width) / 2),
+					Width:    core.Pt(w.Height), Height: core.Pt(w.Width),
+					Transform: core.Transform{Rotate: 90},
+					Overflow:  core.Hidden, Background: core.RGB(0x000000),
+				}
+			}
 			st := theme.Fill().Merge(core.Style{Overflow: core.Hidden})
 			// 手机 edge-to-edge：内容铺到系统栏下，根容器消费安全区
 			// （状态栏 top + 三键导航栏 bottom + 刘海左右），否则系统
