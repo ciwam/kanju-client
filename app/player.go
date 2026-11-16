@@ -32,9 +32,10 @@ type playerState struct {
 	// lastSavedSec 上次写进度的秒数（OnProgress 一秒多次，去重用）。
 	lastSavedSec int64
 	// panSeeking/panBase Android 全屏滑动快进状态：手势期间的基准
-	// 位置（PanEvent.Translation 相对手势起点）。
+	// 位置（PanEvent.Translation 相对手势起点）。panForward 滑动方向。
 	panSeeking bool
 	panBase    time.Duration
+	panForward bool
 	// lastPressAt 上次按压时刻（Android 双击检测，框架不计数）。
 	lastPressAt time.Time
 	app         *App
@@ -321,6 +322,7 @@ func PlayerSurface(cx *core.Scope, a *App) core.Node {
 						if d := st.duration.Get(); next > d {
 							next = d
 						}
+						st.panForward = next > st.panBase
 						st.position.Set(next) // 实时预览
 					case core.GestureEnded, core.GestureCancelled:
 						if !st.panSeeking {
@@ -335,6 +337,8 @@ func PlayerSurface(cx *core.Scope, a *App) core.Node {
 				Children: []core.Node{
 					video,
 					badge(cx, st),
+					// 滑动快进提示气泡（Android 全屏拖动中显示）。
+					seekBubble(cx, st),
 					controlBar(cx, a, st),
 				},
 			}
@@ -369,8 +373,34 @@ func badge(cx *core.Scope, st *playerState) core.Node {
 	})
 }
 
-func overlayBox(cx *core.Scope, color core.Color, text string) core.View {
-	p := cx.Palette()
+// seekBubble Android 全屏滑动快进的居中提示气泡：方向 + 目标时间 /
+// 总时长。拖动中（panSeeking）显示，松手随 panSeeking 复位消失。
+func seekBubble(cx *core.Scope, st *playerState) core.Node {
+	return core.Dynamic(func(*core.Scope) core.Node {
+		if !st.panSeeking {
+			return core.View{}
+		}
+		dir := "◀ 快退 "
+		if st.panForward {
+			dir = "快进 ▶ "
+		}
+		text := dir + fmtDuration(st.position.Get()) + " / " + fmtDuration(st.duration.Get())
+		return core.View{
+			Style: core.Style{
+				Position: core.Absolute, Top: core.Pct(40), Left: core.Pct(50),
+				Transform: core.Transform{TranslateXPercent: -50},
+				Padding:   core.Symmetric(10, 18), CornerRadius: 999,
+				Background: core.RGBA(0x000000, 0.7),
+			},
+			Children: []core.Node{core.Text{
+				Content: text,
+				Style:   core.Style{FontSize: 14, Color: core.RGB(0xffffff)},
+			}},
+		}
+	})
+}
+
+func overlayBox(cx *core.Scope, color core.Color, text string) core.View {	p := cx.Palette()
 	return core.View{
 		Style: core.Style{
 			Position: core.Absolute, Top: core.Pt(12), Left: core.Pct(50),
