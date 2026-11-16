@@ -35,8 +35,10 @@ type playerState struct {
 	// 位置（PanEvent.Translation 相对手势起点）。
 	panSeeking bool
 	panBase    time.Duration
-	app        *App
-	ref        *core.Ref
+	// lastPressAt 上次按压时刻（Android 双击检测，框架不计数）。
+	lastPressAt time.Time
+	app         *App
+	ref         *core.Ref
 }
 
 func newPlayerState(a *App, cx *core.Scope, volume float64, rate float32) *playerState {
@@ -260,14 +262,17 @@ func PlayerSurface(cx *core.Scope, a *App) core.Node {
 				TestID:    "video",
 				StyleFunc: nil,
 				OnPress: func(ev core.PressEvent) {
-					// Android（含全屏）：单击 = 显示/隐藏控制栏，
-					// 双击 = 播放/暂停；桌面保持原行为（单击显示栏并
-					// 切暂停，双击全屏）。
+					// Android：框架不提供双击事件（Java 层 pressClicks
+					// 恒 1），自行计时检测——两次按压间隔 <350ms 视为
+					// 双击 = 播放/暂停；否则单击 = 切换控制栏。
 					if theme.IsAndroid() {
-						if ev.Clicks >= 2 {
+						now := time.Now()
+						if now.Sub(st.lastPressAt) < 350*time.Millisecond {
+							st.lastPressAt = time.Time{}
 							st.paused.Update(func(p bool) bool { return !p })
 							return
 						}
+						st.lastPressAt = now
 						if st.barVisible.Get() {
 							st.barVisible.Set(false)
 							st.hideGen.Set(st.hideGen.Get() + 1) // 使自动隐藏定时失效
