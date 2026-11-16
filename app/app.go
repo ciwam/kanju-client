@@ -45,6 +45,9 @@ type App struct {
 	// UpdateErr 检查更新的一次性结果文案（成功提示/错误），设置页
 	// 版本卡片显示。
 	UpdateErr *core.Signal[string]
+	// VideoFull 播放器全屏（Android 专属状态：桌面走窗口全屏）。
+	// 置真时 Shell 隐藏顶栏/底部导航、状态栏隐藏，播放器铺满整屏。
+	VideoFull *core.Signal[bool]
 	// TestSetHomeItems 测试挂钩：Home 挂载时注册直接驱动网格数据的函数。
 	TestSetHomeItems func([]api.DoubanItem)
 
@@ -148,6 +151,7 @@ func SetupForTest(cx *core.Scope, base string) *App {
 		PreferSourceSignal: core.NewSignal(cx, "douban"),
 		ThemePref:          core.NewSignal(cx, ""),
 		UpdateErr:          core.NewSignal(cx, ""),
+		VideoFull:          core.NewSignal(cx, false),
 		DetailTitle:        core.NewSignal(cx, ""),
 		DetailCover:        core.NewSignal(cx, ""),
 		DetailURL:          core.NewSignal(cx, ""),
@@ -242,6 +246,16 @@ func Setup(cx *core.Scope) *App {
 			store.SetItem("theme_pref", v)
 			return true
 		})
+	})
+	// 离开详情页签时退出播放器全屏（Android 应用内全屏：恢复状态栏）。
+	cx.Effect(func() {
+		if a.VideoFull.Get() && a.Tab.Get() != "detail" {
+			core.Untracked(cx, func() bool {
+				a.VideoFull.Set(false)
+				cx.SetStatusBar(core.StatusBarSetting{})
+				return true
+			})
+		}
 	})
 
 	// 全部 API 请求打进统一日志（排查用）。

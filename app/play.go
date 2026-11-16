@@ -7,9 +7,30 @@ import (
 	"runtime/debug"
 
 	"kanju/client/api"
+	"kanju/client/theme"
 
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/desktop"
 )
+
+// toggleVideoFull 播放器全屏切换：桌面走窗口全屏；Android 无窗口概念，
+// 切应用内全屏状态（VideoFull）并同步隐藏/恢复系统状态栏。
+func (a *App) toggleVideoFull(cx *core.Scope) {
+	if a.VideoFull == nil {
+		return
+	}
+	if theme.IsAndroid() {
+		enter := !a.VideoFull.Get()
+		a.VideoFull.Set(enter)
+		if enter {
+			cx.SetStatusBar(core.StatusBarSetting{Hidden: core.ToggleOn, Animated: core.ToggleOn})
+		} else {
+			cx.SetStatusBar(core.StatusBarSetting{})
+		}
+		return
+	}
+	desktop.ToggleFullScreen(cx)
+}
 
 // PlayEpisode 解析并播放一集（含流探测与换源重试），成功后进播放器。
 // busy 信号共用 DetailPlayBusy（详情页与播放器侧栏互斥，防连点并发）。

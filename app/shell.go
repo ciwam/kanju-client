@@ -72,11 +72,12 @@ func Shell(cx *core.Scope, a *App) core.Node {
 		},
 		Children: []core.Node{
 			// 全局顶栏常显（B 站桌面版样式，播放页也显示——返回保底）；
-			// 全屏时隐藏（沉浸，样式提交不销毁子树）。
+			// 全屏时隐藏（沉浸，样式提交不销毁子树）。Android 播放器
+			// 应用内全屏（VideoFull）同样隐藏。
 			core.View{
 				StyleFunc: func() core.Style {
 					st := appBarStyle(cx)
-					if desktop.FullScreen(cx) {
+					if desktop.FullScreen(cx) || a.VideoFull.Get() {
 						st.Display = core.DisplayNone
 					}
 					return st
@@ -88,7 +89,7 @@ func Shell(cx *core.Scope, a *App) core.Node {
 			// 手机底部导航：首页/历史/收藏/我的（设置收进「我的」）。
 			// 桌面不渲染（顶栏入口已够）；全屏时隐藏（沉浸）。
 			core.Dynamic(func(*core.Scope) core.Node {
-				if !theme.IsAndroid() || desktop.FullScreen(cx) {
+				if !theme.IsAndroid() || desktop.FullScreen(cx) || a.VideoFull.Get() {
 					return core.View{}
 				}
 				return bottomNav(cx, a)

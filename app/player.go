@@ -9,7 +9,6 @@ import (
 
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/desktop"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -217,7 +216,7 @@ func PlayerSurface(cx *core.Scope, a *App) core.Node {
 		})
 		st.showBar(cx)
 	})
-	cx.OnKey("f", func() { desktop.ToggleFullScreen(cx) })
+	cx.OnKey("f", func() { a.toggleVideoFull(cx) })
 
 	return core.View{
 		StyleFunc: func() core.Style {
@@ -259,7 +258,7 @@ func PlayerSurface(cx *core.Scope, a *App) core.Node {
 				OnPress: func(ev core.PressEvent) {
 					st.showBar(cx)
 					if ev.Clicks >= 2 {
-						desktop.ToggleFullScreen(cx)
+						a.toggleVideoFull(cx)
 						return
 					}
 					st.paused.Update(func(p bool) bool { return !p })
@@ -384,11 +383,15 @@ func controlBar(cx *core.Scope, a *App, st *playerState) core.Node {
 				rateControl(cx, st),
 				// 音量。
 				volumeControl(cx, st),
-				// 全屏。
+				// 全屏：桌面切窗口全屏；Android 无窗口概念，切应用内
+				// 全屏状态（VideoFull——Shell 隐藏顶栏/底部导航、状态
+				// 栏隐藏，播放器铺满整屏）。
 				core.View{
 					Style:    core.Style{Width: core.Pt(28), Height: core.Pt(28), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
 					Children: []core.Node{ui.Icon(lucide.Maximize, 16, func() core.Color { return core.RGB(0xffffff) })},
-					OnPress:  func(core.PressEvent) { desktop.ToggleFullScreen(cx) },
+					OnPress: func(core.PressEvent) {
+						a.toggleVideoFull(cx)
+					},
 				},
 			},
 			OnMouseEnter: func(core.MouseEvent) { st.showBar(cx) },

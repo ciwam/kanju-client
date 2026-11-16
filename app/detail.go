@@ -170,13 +170,22 @@ func SubjectDetail(cx *core.Scope, a *App) core.Node {
 		StyleFunc: func() core.Style {
 			// 全屏时页面 padding 归零（视频铺满，无白边）——desktop.FullScreen
 			// 只在 StyleFunc 读：样式提交不销毁子树，Video 不重建。
-			if desktop.FullScreen(cx) {
+			if fullNow(cx, a) {
 				return theme.Fill().Merge(core.Style{Overflow: core.Hidden})
 			}
 			return theme.Fill().Merge(core.Style{Padding: theme.PagePadding(16), Gap: 12, Overflow: core.Hidden})
 		},
 		Children: []core.Node{episodeWatchPage(cx, a)},
 	}
+}
+
+
+// fullNow 播放器是否处于全屏：桌面窗口全屏，或 Android 应用内全屏。
+func fullNow(cx *core.Scope, a *App) bool {
+	if a != nil && a.VideoFull != nil && a.VideoFull.Get() {
+		return true
+	}
+	return desktop.FullScreen(cx)
 }
 
 // episodeWatchPage B 站视频页单页布局：上双栏（左播放器/封面、右选集
@@ -190,6 +199,14 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 	// 在上、选集区在下方。
 	playerPane := core.View{
 		StyleFunc: func() core.Style {
+			// 手机：默认宽全占、16:9 高（AspectRatio）；应用内全屏
+			// （VideoFull）时铺满整屏、去圆角。
+			if theme.IsAndroid() && a.VideoFull.Get() {
+				return core.Style{
+					FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden,
+					Width: core.Pct(100), CornerRadius: 0, Background: core.RGB(0x000000),
+				}
+			}
 			// 手机：宽全占、16:9 高（AspectRatio），不参与伸展——保证
 			// 播放器完整展示在中上位置，下方留给信息与选集。
 			if theme.IsAndroid() {
@@ -201,7 +218,7 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 			}
 			// 全屏时去圆角（视频铺满整窗）。
 			st := core.Style{FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden, CornerRadius: 8, Background: core.RGB(0x000000)}
-			if desktop.FullScreen(cx) {
+			if fullNow(cx, a) {
 				st.CornerRadius = 0
 			}
 			return st
@@ -316,7 +333,7 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 			}
 			// 全屏时右栏收起、双栏间隙归零（B 站：全屏只有视频）。
 			st := core.Style{Direction: core.Row, Gap: 12, FlexGrow: 1, FlexShrink: 1, Overflow: core.Hidden}
-			if desktop.FullScreen(cx) {
+			if fullNow(cx, a) {
 				st.Gap = 0
 			}
 			return st
@@ -327,7 +344,7 @@ func episodeWatchPage(cx *core.Scope, a *App) core.Node {
 				StyleFunc: func() core.Style {
 					// 全屏时右栏隐藏（DisplayNone 样式提交，子树与页内
 					// 状态保留，退出全屏恢复）。
-					if desktop.FullScreen(cx) {
+					if fullNow(cx, a) {
 						return core.Style{Display: core.DisplayNone}
 					}
 					p := cx.Palette()
